@@ -13,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from backend.app.config import settings
 from backend.app.db import SessionLocal
 from backend.app.services.ingest import sync_all
+from backend.app.services.lifecycle import recompute_all
 
 log = structlog.get_logger()
 
@@ -26,6 +27,8 @@ def run_scheduled_sync() -> None:
     try:
         runs = sync_all(db)
         synced = sum(r.findings_count for r in runs)
+        # Flush snoozes that expired since the last run.
+        recompute_all(db)
         log.info("scheduler.sync_done", connectors=len(runs), findings=synced)
     except Exception as exc:  # noqa: BLE001 — never let a bad run kill the scheduler thread
         log.error("scheduler.sync_failed", error=str(exc))

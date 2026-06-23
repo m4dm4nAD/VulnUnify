@@ -29,10 +29,28 @@ class FindingCategory(str, Enum):
 
 
 class FindingStatus(str, Enum):
+    """Status as reported by the *source* connector (stored as source_status)."""
     OPEN = "open"
     FIXED = "fixed"
     SUPPRESSED = "suppressed"        # muted in the source tool
     ACCEPTED_RISK = "accepted_risk"  # risk-accepted / won't-fix
+
+
+class TriageState(str, Enum):
+    """A local human decision on a finding — survives connector re-syncs."""
+    ACTIVE = "active"               # no decision yet
+    FALSE_POSITIVE = "false_positive"
+    ACCEPTED_RISK = "accepted_risk"
+    SNOOZED = "snoozed"             # muted until triage_until
+
+
+class EffectiveStatus(str, Enum):
+    """The status VulnUnify shows — derived from lifecycle + triage."""
+    OPEN = "open"
+    RESOLVED = "resolved"          # no longer reported by the source
+    FALSE_POSITIVE = "false_positive"
+    ACCEPTED_RISK = "accepted_risk"
+    SNOOZED = "snoozed"
 
 
 class AssetType(str, Enum):

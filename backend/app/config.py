@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     # Background scheduler: run all connectors every N minutes (0 = disabled).
     sync_interval_minutes: int = 0
 
+    # SLA windows (days from first_seen) by severity. info has no SLA.
+    sla_critical_days: int = 7
+    sla_high_days: int = 30
+    sla_medium_days: int = 90
+    sla_low_days: int = 180
+
     # --- Tenable ---
     tenable_access_key: str = ""
     tenable_secret_key: str = ""

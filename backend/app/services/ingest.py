@@ -11,10 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.connectors.base import BaseConnector, NormalizedAsset, NormalizedFinding
+from backend.app.connectors.enums import FindingStatus
 from backend.app.models.asset import Asset
 from backend.app.models.base import utcnow
 from backend.app.models.connector_run import ConnectorRun
 from backend.app.models.finding import Finding
+from backend.app.services.lifecycle import apply_lifecycle, resolve_missing
 
 log = structlog.get_logger()
 
@@ -51,7 +53,7 @@ def _upsert_finding(db: Session, nf: NormalizedFinding, asset: Asset) -> bool:
     finding.description = nf.description
     finding.severity = nf.severity.value
     finding.raw_severity = nf.raw_severity
-    finding.status = nf.status.value
+    finding.source_status = nf.status.value
     finding.cve_ids = nf.cve_ids
     finding.cwe_ids = nf.cwe_ids
     finding.cvss_base_score = nf.cvss_base_score
@@ -63,6 +65,17 @@ def _upsert_finding(db: Session, nf: NormalizedFinding, asset: Asset) -> bool:
     finding.raw = nf.raw
     finding.last_seen = nf.last_seen or utcnow()
     finding.asset = asset
+
+    # Lifecycle: the source telling us it's fixed resolves it; otherwise being
+    # present in the pull means it's active again (reopen if it was resolved).
+    if nf.status == FindingStatus.FIXED:
+        finding.resolved_at = nf.last_seen or utcnow()
+    else:
+        finding.resolved_at = None
+
+    # Triage fields are intentionally left untouched here so local decisions
+    # survive re-syncs. Recompute the derived fields from what we just set.
+    apply_lifecycle(finding)
     return created
 
 
@@ -94,6 +107,10 @@ def sync_connector(db: Session, connector: BaseConnector) -> ConnectorRun:
     try:
         findings = connector.fetch()
         result = ingest_findings(db, findings)
+        # Auto-resolve anything previously open from this source but not in this pull.
+        if connector.supports_auto_resolve:
+            seen = {f.fingerprint() for f in findings}
+            result["resolved"] = resolve_missing(db, connector.name, seen)
         run.findings_count = result["total"]
         run.status = "success"
         log.info("connector.synced", connector=connector.name, **result)

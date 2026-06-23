@@ -10,7 +10,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.app.api import routes_connectors, routes_findings, routes_sync
+from backend.app.api import (
+    routes_connectors,
+    routes_findings,
+    routes_lifecycle,
+    routes_sync,
+)
 from backend.app.config import settings
 from backend.app.scheduler import shutdown_scheduler, start_scheduler
 
@@ -44,6 +49,7 @@ app.add_middleware(
 app.include_router(routes_findings.router)
 app.include_router(routes_connectors.router)
 app.include_router(routes_sync.router)
+app.include_router(routes_lifecycle.router)
 
 
 @app.get("/health", tags=["meta"])

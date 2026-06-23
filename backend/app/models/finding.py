@@ -7,7 +7,7 @@ from sqlalchemy import DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from backend.app.models.base import Base, TimestampMixin
+from backend.app.models.base import Base, TimestampMixin, utcnow
 
 
 class Finding(Base, TimestampMixin):
@@ -25,7 +25,24 @@ class Finding(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text)
     severity: Mapped[str] = mapped_column(String(16), index=True)
     raw_severity: Mapped[str | None] = mapped_column(String(64))
-    status: Mapped[str] = mapped_column(String(32), index=True, default="open")
+
+    # Status as reported by the source connector.
+    source_status: Mapped[str] = mapped_column(String(32), default="open")
+    # Status VulnUnify shows, derived from lifecycle + triage (see services/lifecycle).
+    effective_status: Mapped[str] = mapped_column(String(32), index=True, default="open")
+
+    # Lifecycle: set when the source stops reporting the finding; cleared on reopen.
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Triage: a local human decision that survives connector re-syncs.
+    triage_state: Mapped[str] = mapped_column(String(32), default="active")
+    triage_reason: Mapped[str | None] = mapped_column(Text)
+    triage_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    triaged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    triaged_by: Mapped[str | None] = mapped_column(String(128))
+
+    # SLA deadline derived from first_seen + per-severity window.
+    sla_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     cve_ids: Mapped[list] = mapped_column(JSONB, default=list)
     cwe_ids: Mapped[list] = mapped_column(JSONB, default=list)
@@ -43,3 +60,19 @@ class Finding(Base, TimestampMixin):
 
     asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
     asset: Mapped["Asset"] = relationship(back_populates="findings")  # noqa: F821
+
+    @property
+    def age_days(self) -> int | None:
+        """Days since the finding was first seen."""
+        if self.first_seen is None:
+            return None
+        return (utcnow() - self.first_seen).days
+
+    @property
+    def sla_breached(self) -> bool:
+        """True when an open finding is past its SLA deadline."""
+        return bool(
+            self.sla_due_at is not None
+            and self.effective_status == "open"
+            and self.sla_due_at < utcnow()
+        )

@@ -92,6 +92,9 @@ class BaseConnector(ABC):
 
     name: str = "base"
     category: FindingCategory = FindingCategory.VULNERABILITY
+    # When True, findings previously seen from this source but absent in a sync
+    # are auto-resolved. Set False for connectors that do partial/filtered pulls.
+    supports_auto_resolve: bool = True
 
     @abstractmethod
     def is_configured(self) -> bool:
