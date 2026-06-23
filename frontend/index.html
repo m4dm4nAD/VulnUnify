@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify</title>
+  <style>
+    :root { --bg:#0f1115; --panel:#181b22; --line:#262b36; --txt:#e6e9ef; --muted:#8b93a7;
+            --crit:#e5484d; --high:#f76808; --med:#f5a623; --low:#3b82f6; --info:#6b7280; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:14px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--txt); }
+    header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex;
+             align-items:center; gap:16px; }
+    header h1 { font-size:18px; margin:0; }
+    header button { margin-left:auto; background:#2563eb; color:#fff; border:0; padding:8px 14px;
+                    border-radius:6px; cursor:pointer; font-weight:600; }
+    main { padding:24px; max-width:1200px; margin:0 auto; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+    .card .n { font-size:24px; font-weight:700; }
+    .card .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    section { margin-top:28px; }
+    h2 { font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+    table { width:100%; border-collapse:collapse; background:var(--panel);
+            border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+    th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); font-weight:600; font-size:12px; }
+    tr:last-child td { border-bottom:0; }
+    .pill { padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase; }
+    .sev-critical{background:var(--crit);color:#fff} .sev-high{background:var(--high);color:#fff}
+    .sev-medium{background:var(--med);color:#000} .sev-low{background:var(--low);color:#fff}
+    .sev-info{background:var(--info);color:#fff}
+    .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+    .ok{background:#22c55e}.off{background:#4b5563}.err{background:var(--crit)}.skip{background:var(--med)}
+    select,input{background:#0c0e13;color:var(--txt);border:1px solid var(--line);
+                 border-radius:6px;padding:6px 8px}
+    .filters{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+    .muted{color:var(--muted)}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🛡️ VulnUnify</h1>
+    <span class="muted">unified vulnerability management</span>
+    <button id="syncBtn">Sync all connectors</button>
+  </header>
+  <main>
+    <div class="cards" id="cards"></div>
+
+    <section>
+      <h2>Connectors</h2>
+      <table><thead><tr><th>Connector</th><th>Category</th><th>Configured</th>
+        <th>Last run</th><th>Status</th><th>Findings</th></tr></thead>
+        <tbody id="connectors"></tbody></table>
+    </section>
+
+    <section>
+      <h2>Findings</h2>
+      <div class="filters">
+        <select id="fSeverity"><option value="">All severities</option>
+          <option>critical</option><option>high</option><option>medium</option>
+          <option>low</option><option>info</option></select>
+        <select id="fCategory"><option value="">All categories</option>
+          <option value="vulnerability">vulnerability</option>
+          <option value="cloud_posture">cloud_posture</option>
+          <option value="sast">sast</option></select>
+        <input id="fQ" placeholder="search title…" />
+      </div>
+      <table><thead><tr><th>Severity</th><th>Source</th><th>Title</th>
+        <th>Asset</th><th>Category</th></tr></thead>
+        <tbody id="findings"></tbody></table>
+    </section>
+  </main>
+
+  <script>
+    const api = (p, o) => fetch(p, o).then(r => r.json());
+    const esc = s => (s ?? "").toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+    async function loadStats() {
+      const s = await api("/api/stats");
+      const sev = s.by_severity || {};
+      const cards = [
+        ["Findings", s.total_findings], ["Assets", s.total_assets],
+        ["Critical", sev.critical || 0], ["High", sev.high || 0],
+        ["Medium", sev.medium || 0], ["Low", sev.low || 0],
+      ];
+      document.getElementById("cards").innerHTML = cards.map(
+        ([l, n]) => `<div class="card"><div class="n">${n}</div><div class="l">${l}</div></div>`
+      ).join("");
+    }
+
+    async function loadConnectors() {
+      const cs = await api("/api/connectors");
+      document.getElementById("connectors").innerHTML = cs.map(c => {
+        const cls = !c.configured ? "off" : c.last_status === "error" ? "err"
+                  : c.last_status === "skipped" ? "skip" : "ok";
+        return `<tr><td>${esc(c.name)}</td><td>${esc(c.category)}</td>
+          <td>${c.configured ? "yes" : "<span class='muted'>no</span>"}</td>
+          <td>${c.last_run_at ? new Date(c.last_run_at).toLocaleString() : "—"}</td>
+          <td><span class="dot ${cls}"></span>${esc(c.last_status || "never run")}</td>
+          <td>${c.last_findings_count ?? "—"}</td></tr>`;
+      }).join("");
+    }
+
+    async function loadFindings() {
+      const p = new URLSearchParams();
+      const sev = fSeverity.value, cat = fCategory.value, q = fQ.value;
+      if (sev) p.set("severity", sev);
+      if (cat) p.set("category", cat);
+      if (q) p.set("q", q);
+      const data = await api("/api/findings?" + p.toString());
+      document.getElementById("findings").innerHTML = (data.items || []).map(f =>
+        `<tr><td><span class="pill sev-${f.severity}">${f.severity}</span></td>
+         <td>${esc(f.source)}</td><td>${esc(f.title)}</td>
+         <td class="muted">${esc(f.asset?.name || f.asset?.identifier)}</td>
+         <td>${esc(f.category)}</td></tr>`
+      ).join("") || `<tr><td colspan="5" class="muted">No findings yet — run a sync.</td></tr>`;
+    }
+
+    function refresh() { loadStats(); loadConnectors(); loadFindings(); }
+
+    syncBtn.onclick = async () => {
+      syncBtn.textContent = "Syncing…"; syncBtn.disabled = true;
+      try { await api("/api/sync", { method: "POST" }); } finally {
+        syncBtn.textContent = "Sync all connectors"; syncBtn.disabled = false; refresh();
+      }
+    };
+    [fSeverity, fCategory].forEach(el => el.onchange = loadFindings);
+    fQ.oninput = () => { clearTimeout(window._t); window._t = setTimeout(loadFindings, 300); };
+    refresh();
+  </script>
+</body>
+</html>
