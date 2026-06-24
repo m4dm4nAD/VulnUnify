@@ -22,7 +22,8 @@ class FindingCategory(str, Enum):
     VULNERABILITY = "vulnerability"      # host/network CVEs (Tenable, Rapid7)
     CLOUD_POSTURE = "cloud_posture"      # CSPM misconfig (Wiz, Trend, Defender)
     SAST = "sast"                        # static code analysis (SonarQube, Semgrep, Aikido)
-    SCA = "sca"                          # dependency / supply chain
+    SCA = "sca"                          # known-vulnerable dependency
+    SUPPLY_CHAIN = "supply_chain"        # malicious/compromised package (OSV MAL-)
     SECRET = "secret"                    # leaked credentials
     IAC = "iac"                          # infrastructure-as-code misconfig
     CONTAINER = "container"              # container image vulns
@@ -58,5 +59,6 @@ class AssetType(str, Enum):
     CLOUD_RESOURCE = "cloud_resource"
     REPOSITORY = "repository"
     CONTAINER_IMAGE = "container_image"
+    PACKAGE = "package"            # a watched dependency (ecosystem/name@version)
     WEB_APP = "web_app"
     UNKNOWN = "unknown"

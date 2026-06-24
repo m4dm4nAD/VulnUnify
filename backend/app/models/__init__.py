@@ -6,7 +6,9 @@ from backend.app.models.connector_run import ConnectorRun
 from backend.app.models.finding import Finding
 from backend.app.models.session import Session
 from backend.app.models.user import User
+from backend.app.models.watched_package import WatchedPackage
 
 __all__ = [
     "Base", "Asset", "Finding", "ConnectorRun", "ConnectorCredential", "User", "Session",
+    "WatchedPackage",
 ]

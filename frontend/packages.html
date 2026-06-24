@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Packages</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🛡️ VulnUnify</h1>
+    <nav id="mainnav"></nav>
+    <span id="authBox" class="authbox"></span>
+    <button id="scanBtn">Run OSV scan</button>
+  </header>
+  <main>
+    <section>
+      <h2>Watch packages for supply-chain risk</h2>
+      <p class="muted">Import a lockfile to add its dependencies to the watchlist, then run an
+        OSV scan. Malicious packages and known CVEs appear as findings on the
+        Overview (filter category <code>supply_chain</code> / <code>sca</code>).
+        Supported: <code>package-lock.json</code>, <code>requirements.txt</code>, <code>go.sum</code>.</p>
+      <div class="filters">
+        <input type="file" id="mf" accept=".json,.txt,.sum" />
+        <input id="src" placeholder="source label (optional, e.g. my-app)" />
+        <button class="mini" data-primary onclick="importManifest()">Import</button>
+        <span id="importMsg" class="muted"></span>
+      </div>
+      <div id="scanMsg" class="muted" style="margin-top:6px"></div>
+    </section>
+
+    <section>
+      <h2>Watched packages <span class="muted" id="pkgCount"></span></h2>
+      <table><thead><tr><th>Ecosystem</th><th>Name</th><th>Version</th><th>Source</th><th></th></tr></thead>
+        <tbody id="pkgs"></tbody></table>
+    </section>
+  </main>
+
+  <script>
+    async function load() {
+      const pkgs = await api("/api/packages");
+      document.getElementById("pkgCount").textContent = pkgs.length ? `— ${pkgs.length}` : "";
+      document.getElementById("pkgs").innerHTML = pkgs.map(p => `<tr>
+        <td>${esc(p.ecosystem)}</td><td>${esc(p.name)}</td><td>${esc(p.version)}</td>
+        <td class="muted">${esc(p.source)}</td>
+        <td><button class="mini" onclick="delPkg(${p.id})">Remove</button></td></tr>`).join("")
+        || `<tr><td colspan="5" class="muted">No packages watched yet — import a lockfile above.</td></tr>`;
+    }
+
+    async function importManifest() {
+      const msg = document.getElementById("importMsg"); msg.textContent = "";
+      const f = document.getElementById("mf").files[0];
+      if (!f) { msg.textContent = "choose a file first"; return; }
+      const body = { filename: f.name, content: await f.text(),
+                     source: document.getElementById("src").value.trim() || f.name };
+      const res = await fetch("/api/packages/import", { method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) {
+        msg.textContent = `Added ${j.added} of ${j.parsed} (${(j.ecosystems || []).join(", ")})`;
+        load();
+      } else { msg.textContent = j.detail || "import failed"; }
+    }
+
+    async function delPkg(id) {
+      await fetch(`/api/packages/${id}`, { method: "DELETE", credentials: "same-origin" });
+      load();
+    }
+
+    scanBtn.onclick = async () => {
+      scanBtn.disabled = true; scanBtn.textContent = "Scanning…";
+      const msg = document.getElementById("scanMsg");
+      try {
+        const r = await api("/api/sync/osv", { method: "POST" });
+        msg.textContent = `OSV scan ${r.status} — ${r.findings_count} findings. See Overview › category supply_chain / sca.`;
+      } finally { scanBtn.disabled = false; scanBtn.textContent = "Run OSV scan"; }
+    };
+
+    requireRole("security").then(load);
+  </script>
+</body>
+</html>

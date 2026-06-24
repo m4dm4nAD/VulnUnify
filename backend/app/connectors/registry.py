@@ -10,6 +10,7 @@ from __future__ import annotations
 from backend.app.connectors.base import BaseConnector
 from backend.app.connectors.aikido import AikidoConnector
 from backend.app.connectors.defender import DefenderForCloudConnector
+from backend.app.connectors.osv import OsvConnector
 from backend.app.connectors.rapid7 import Rapid7Connector
 from backend.app.connectors.semgrep import SemgrepConnector
 from backend.app.connectors.sonarqube import SonarQubeConnector
@@ -30,6 +31,8 @@ _CONNECTOR_CLASSES: list[type[BaseConnector]] = [
     SonarQubeConnector,
     SemgrepConnector,
     AikidoConnector,
+    # Supply chain (package observation; no credentials)
+    OsvConnector,
 ]
 
 

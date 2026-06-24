@@ -19,6 +19,7 @@ async function api(path, opts = {}) {
 const NAV = [
   { href: "/", label: "Overview" },
   { href: "/connectors.html", label: "Connectors", gate: "security" },
+  { href: "/packages.html", label: "Packages", gate: "security" },
   { href: "/settings.html", label: "Settings", gate: "security" },
   { href: "/status.html", label: "Status", gate: "security" },
   { href: "/users.html", label: "Users", gate: "admin" },

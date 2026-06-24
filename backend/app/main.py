@@ -15,6 +15,7 @@ from backend.app.api import (
     routes_connectors,
     routes_findings,
     routes_lifecycle,
+    routes_packages,
     routes_settings,
     routes_sync,
     routes_users,
@@ -66,6 +67,7 @@ app.include_router(routes_connectors.router, dependencies=_security)
 app.include_router(routes_sync.router, dependencies=_security)
 app.include_router(routes_lifecycle.router, dependencies=_security)
 app.include_router(routes_settings.router, dependencies=_security)
+app.include_router(routes_packages.router, dependencies=_security)
 
 
 @app.get("/health", tags=["meta"])
