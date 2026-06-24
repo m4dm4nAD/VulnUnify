@@ -59,14 +59,20 @@ def _require(name: str) -> BaseConnector:
 @router.get("", response_model=list[ConnectorStatus])
 def list_connectors(db: Session = Depends(get_db)):
     """List every registered connector, whether it's configured, and its last run."""
+    # Latest run per connector in one query (DISTINCT ON), plus one batch
+    # credential load — avoids a query per connector.
+    latest = db.scalars(
+        select(ConnectorRun)
+        .order_by(ConnectorRun.connector, ConnectorRun.started_at.desc())
+        .distinct(ConnectorRun.connector)
+    )
+    last_by_name = {r.connector: r for r in latest}
+    overrides = credentials.load_all_overrides()
+
     out: list[ConnectorStatus] = []
     for c in all_connectors():
-        last = db.scalar(
-            select(ConnectorRun)
-            .where(ConnectorRun.connector == c.name)
-            .order_by(ConnectorRun.started_at.desc())
-            .limit(1)
-        )
+        c._overrides = overrides.get(c.name, {})  # prime cache so is_configured() won't query
+        last = last_by_name.get(c.name)
         out.append(
             ConnectorStatus(
                 name=c.name,

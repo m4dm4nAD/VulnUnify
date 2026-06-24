@@ -11,8 +11,6 @@ SONARQUBE_PROJECT_KEYS if you have more.
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 import httpx
 
 from backend.app.connectors.base import (
@@ -22,6 +20,7 @@ from backend.app.connectors.base import (
     NormalizedFinding,
 )
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus, Severity
+from backend.app.normalize.dates import parse_iso
 
 _SEVERITY_MAP = {
     "BLOCKER": Severity.CRITICAL,
@@ -120,16 +119,7 @@ class SonarQubeConnector(BaseConnector):
             cwe_ids=cwes,
             location={"path": path, "line": issue.get("line")},
             tags={"rule": issue.get("rule"), "sonar_tags": issue.get("tags")},
-            first_seen=_parse_dt(issue.get("creationDate")),
-            last_seen=_parse_dt(issue.get("updateDate")),
+            first_seen=parse_iso(issue.get("creationDate")),
+            last_seen=parse_iso(issue.get("updateDate")),
             raw=issue,
         )
-
-
-def _parse_dt(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None

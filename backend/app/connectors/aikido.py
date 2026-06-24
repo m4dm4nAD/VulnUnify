@@ -11,8 +11,6 @@ category per issue from its `type` rather than using a single fixed one.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import httpx
 
 from backend.app.connectors.base import (
@@ -23,6 +21,7 @@ from backend.app.connectors.base import (
 )
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus
 from backend.app.normalize import severity as sev
+from backend.app.normalize.dates import parse_epoch
 
 # Aikido issue type -> normalized category.
 _CATEGORY_MAP = {
@@ -123,15 +122,6 @@ class AikidoConnector(BaseConnector):
                 "severity_score": issue.get("severity_score"),
                 "affected_package_version": issue.get("affected_package_version"),
             },
-            first_seen=_epoch_dt(issue.get("first_detected_at")),
+            first_seen=parse_epoch(issue.get("first_detected_at")),
             raw=issue,
         )
-
-
-def _epoch_dt(value) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromtimestamp(int(value), tz=timezone.utc)
-    except (ValueError, TypeError, OSError):
-        return None

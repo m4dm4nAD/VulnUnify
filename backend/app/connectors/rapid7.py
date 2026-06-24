@@ -24,6 +24,7 @@ from backend.app.connectors.base import (
 )
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus
 from backend.app.normalize import severity as sev
+from backend.app.normalize.dates import parse_iso
 
 _PAGE_SIZE = 500
 
@@ -129,17 +130,6 @@ class Rapid7Connector(BaseConnector):
                 "malware_kits": vuln.get("malwareKits"),
                 "finding_status": finding.get("status"),
             },
-            first_seen=_parse_dt(finding.get("since")),
+            first_seen=parse_iso(finding.get("since")),
             raw={"asset": asset, "finding": finding, "vulnerability": vuln},
         )
-
-
-def _parse_dt(value: str | None):
-    from datetime import datetime
-
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None

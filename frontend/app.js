@@ -15,6 +15,26 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
+// Single source of truth for the top nav (rendered into <nav id="mainnav">).
+const NAV = [
+  { href: "/", label: "Overview" },
+  { href: "/connectors.html", label: "Connectors", gate: "security" },
+  { href: "/settings.html", label: "Settings", gate: "security" },
+  { href: "/status.html", label: "Status", gate: "security" },
+  { href: "/users.html", label: "Users", gate: "admin" },
+];
+
+function renderNav() {
+  const el = document.getElementById("mainnav");
+  if (!el) return;
+  const path = location.pathname;
+  el.innerHTML = NAV.map(n => {
+    const active = (n.href === "/" ? path === "/" : path === n.href) ? ' class="active"' : "";
+    const gate = n.gate ? ` data-gate="${n.gate}"` : "";   // hidden until role allows
+    return `<a href="${n.href}"${active}${gate}>${esc(n.label)}</a>`;
+  }).join("");
+}
+
 // Resolves to the current user once known. Pages await this to branch on role.
 let _meResolve;
 window.mePromise = new Promise(r => (_meResolve = r));
@@ -38,6 +58,7 @@ window.requireRole = async (level) => {
 };
 
 async function initAuthHeader() {
+  renderNav();  // structure first, so applyRoleVisibility can reveal allowed links
   let me;
   try { me = await api("/api/auth/me"); } catch { return; }  // api() handled the redirect
   window.ME = me;

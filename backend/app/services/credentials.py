@@ -17,19 +17,32 @@ from backend.app.services import crypto
 log = structlog.get_logger()
 
 
+def _decrypt_row(row: ConnectorCredential, into: dict[str, str]) -> None:
+    try:
+        into[row.key] = crypto.decrypt(row.value)
+    except crypto.InvalidToken:
+        # Wrong/rotated SECRET_KEY — ignore so one bad row can't break sync.
+        log.warning("credentials.undecryptable", connector=row.connector, key=row.key)
+
+
 def load_overrides(connector: str) -> dict[str, str]:
-    """Decrypted {key: value} overrides for a connector (skips undecryptable rows)."""
+    """Decrypted {key: value} overrides for one connector (skips undecryptable rows)."""
     out: dict[str, str] = {}
     with SessionLocal() as db:
         rows = db.scalars(
             select(ConnectorCredential).where(ConnectorCredential.connector == connector)
-        ).all()
+        )
         for row in rows:
-            try:
-                out[row.key] = crypto.decrypt(row.value)
-            except crypto.InvalidToken:
-                # Wrong/rotated SECRET_KEY — ignore so one bad row can't break sync.
-                log.warning("credentials.undecryptable", connector=connector, key=row.key)
+            _decrypt_row(row, out)
+    return out
+
+
+def load_all_overrides() -> dict[str, dict[str, str]]:
+    """Decrypted overrides for every connector in one query: {connector: {key: value}}."""
+    out: dict[str, dict[str, str]] = {}
+    with SessionLocal() as db:
+        for row in db.scalars(select(ConnectorCredential)):
+            _decrypt_row(row, out.setdefault(row.connector, {}))
     return out
 
 

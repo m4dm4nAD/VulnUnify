@@ -6,8 +6,6 @@ cursor. Docs: https://win.wiz.io/reference/quickstart  /  .../issues
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 import httpx
 
 from backend.app.connectors.base import (
@@ -18,6 +16,7 @@ from backend.app.connectors.base import (
 )
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus
 from backend.app.normalize import severity as sev
+from backend.app.normalize.dates import parse_iso
 
 # Audience for the client-credentials grant. Modern tenants use "wiz-api";
 # some older tenants use "beyond-api".
@@ -167,16 +166,7 @@ class WizConnector(BaseConnector):
             },
             references=[url] if url else [],
             tags={"issue_type": node.get("type"), "rule_type": rule.get("__typename")},
-            first_seen=_parse_dt(node.get("createdAt")),
-            last_seen=_parse_dt(node.get("updatedAt")),
+            first_seen=parse_iso(node.get("createdAt")),
+            last_seen=parse_iso(node.get("updatedAt")),
             raw=node,
         )
-
-
-def _parse_dt(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None

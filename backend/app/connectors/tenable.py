@@ -7,7 +7,6 @@ each chunk. Docs: https://developer.tenable.com/reference/exports-vulns-request-
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
 
 import httpx
 
@@ -19,6 +18,7 @@ from backend.app.connectors.base import (
 )
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus, Severity
 from backend.app.normalize import severity as sev
+from backend.app.normalize.dates import parse_iso
 
 _SEVERITY_BY_ID = {
     0: Severity.INFO,
@@ -132,16 +132,7 @@ class TenableConnector(BaseConnector):
             references=[se.get("url") for se in plugin.get("see_also", []) if se.get("url")]
             if isinstance(plugin.get("see_also"), list)
             else [],
-            first_seen=_parse_dt(item.get("first_found")),
-            last_seen=_parse_dt(item.get("last_found")),
+            first_seen=parse_iso(item.get("first_found")),
+            last_seen=parse_iso(item.get("last_found")),
             raw=item,
         )
-
-
-def _parse_dt(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return datetime.now(timezone.utc)

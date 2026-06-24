@@ -7,8 +7,6 @@ Docs: https://automation.trendmicro.com/xdr/api-v3
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 import httpx
 
 from backend.app.connectors.base import (
@@ -18,6 +16,7 @@ from backend.app.connectors.base import (
     NormalizedFinding,
 )
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus, Severity
+from backend.app.normalize.dates import parse_iso
 
 # Conformity risk levels -> normalized severity.
 _RISK_MAP = {
@@ -90,16 +89,7 @@ class TrendConnector(BaseConnector):
                 "service": check.get("service"),
             },
             tags={"rule_id": check.get("ruleId"), "categories": check.get("categories")},
-            first_seen=_parse_dt(check.get("createdDate")),
-            last_seen=_parse_dt(check.get("updatedDate")),
+            first_seen=parse_iso(check.get("createdDate")),
+            last_seen=parse_iso(check.get("updatedDate")),
             raw=check,
         )
-
-
-def _parse_dt(value) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None

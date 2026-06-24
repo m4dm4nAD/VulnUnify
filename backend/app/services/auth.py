@@ -63,12 +63,15 @@ def resolve_session(db: DbSession, token: str | None) -> User | None:
     sess = db.get(Session, _hash_token(token))
     if sess is None:
         return None
-    if sess.expires_at < utcnow():
+    now = utcnow()
+    if sess.expires_at < now:
         db.delete(sess)
         db.commit()
         return None
-    sess.last_seen = utcnow()
-    db.commit()
+    # Avoid a write on every request — only refresh last_seen when it's stale.
+    if (now - sess.last_seen).total_seconds() > 60:
+        sess.last_seen = now
+        db.commit()
     user = db.get(User, sess.user_id)
     return user if user and user.is_active else None
 

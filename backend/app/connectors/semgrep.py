@@ -16,8 +16,9 @@ from backend.app.connectors.base import (
     NormalizedAsset,
     NormalizedFinding,
 )
-from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus, Severity
+from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus
 from backend.app.normalize import severity as sev
+from backend.app.normalize.dates import parse_iso
 
 _STATE_MAP = {
     "open": FindingStatus.OPEN,
@@ -96,18 +97,7 @@ class SemgrepConnector(BaseConnector):
                 "column": location.get("column"),
             },
             tags={"owasp": rule.get("owasp_names", []), "confidence": item.get("confidence")},
-            first_seen=_parse_dt(item.get("created_at")),
-            last_seen=_parse_dt(item.get("relevant_since") or item.get("created_at")),
+            first_seen=parse_iso(item.get("created_at")),
+            last_seen=parse_iso(item.get("relevant_since") or item.get("created_at")),
             raw=item,
         )
-
-
-def _parse_dt(value):
-    from datetime import datetime
-
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
