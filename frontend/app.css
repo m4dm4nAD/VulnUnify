@@ -12,8 +12,9 @@ nav a { color:var(--muted); text-decoration:none; padding:6px 12px; border-radiu
         font-weight:600; }
 nav a:hover { color:var(--txt); }
 nav a.active { color:var(--txt); background:var(--panel); border:1px solid var(--line); }
-header button { margin-left:auto; background:#2563eb; color:#fff; border:0; padding:8px 14px;
-                border-radius:6px; cursor:pointer; font-weight:600; }
+header > button { margin-left:12px; background:#2563eb; color:#fff; border:0; padding:8px 14px;
+                  border-radius:6px; cursor:pointer; font-weight:600; }
+.authbox { margin-left:auto; display:flex; align-items:center; gap:10px; }
 
 main { padding:24px; max-width:1280px; margin:0 auto; }
 section { margin-top:28px; }
@@ -79,3 +80,13 @@ button.mini:hover{background:#323c4d}
 .modal-actions{display:flex;gap:8px;margin-top:18px;align-items:center}
 .modal-actions .spacer{margin-left:auto}
 .modal-actions button[data-primary]{background:#2563eb;color:#fff;border:0}
+
+body.login{display:flex;align-items:center;justify-content:center;min-height:100vh}
+.login-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+            padding:28px;width:320px}
+.login-card h1{font-size:20px;margin:0 0 18px;text-align:center}
+.login-card form{display:flex;flex-direction:column;gap:10px}
+.login-card input{padding:10px}
+.login-card button{background:#2563eb;color:#fff;border:0;padding:10px;border-radius:6px;
+                   cursor:pointer;font-weight:600}
+.err-msg{color:var(--crit);font-size:13px;min-height:16px;text-align:center}

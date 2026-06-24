@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     # If unset, a dev key is generated and persisted to .vulnunify_secret_key.
     secret_key: str = ""
 
+    # --- Auth / sessions ---
+    session_cookie_name: str = "vulnunify_session"
+    session_ttl_hours: int = 12
+    session_cookie_secure: bool = False  # set True when serving over HTTPS
+    # Bootstrap admin, created on first startup when no users exist. If the
+    # password is blank, a random one is generated and logged once.
+    initial_admin_username: str = "admin"
+    initial_admin_password: str = ""
+
     # Background scheduler: run all connectors every N minutes (0 = disabled).
     sync_interval_minutes: int = 0
 

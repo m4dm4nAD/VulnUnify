@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Sign in</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body class="login">
+  <div class="login-card">
+    <h1>🛡️ VulnUnify</h1>
+    <form id="loginForm">
+      <input id="u" placeholder="Username" autocomplete="username" autofocus />
+      <input id="p" type="password" placeholder="Password" autocomplete="current-password" />
+      <button type="submit">Sign in</button>
+      <div id="err" class="err-msg"></div>
+    </form>
+  </div>
+  <script>
+    document.getElementById("loginForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const err = document.getElementById("err"); err.textContent = "";
+      const res = await fetch("/api/auth/login", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u.value, password: p.value }),
+      });
+      if (res.ok) {
+        const next = new URLSearchParams(location.search).get("next");
+        location.href = next || "/";
+      } else {
+        err.textContent = "Invalid username or password";
+      }
+    };
+  </script>
+</body>
+</html>

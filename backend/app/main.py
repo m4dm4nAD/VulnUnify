@@ -6,19 +6,23 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.api import (
+    routes_auth,
     routes_connectors,
     routes_findings,
     routes_lifecycle,
     routes_settings,
     routes_sync,
 )
+from backend.app.api.deps import require_user
 from backend.app.config import settings
+from backend.app.db import SessionLocal
 from backend.app.scheduler import shutdown_scheduler, start_scheduler
+from backend.app.services.auth import seed_initial_admin
 
 logging.basicConfig(level=settings.log_level)
 structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.INFO))
@@ -26,6 +30,8 @@ structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    with SessionLocal() as db:
+        seed_initial_admin(db)
     start_scheduler()
     try:
         yield
@@ -47,11 +53,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(routes_findings.router)
-app.include_router(routes_connectors.router)
-app.include_router(routes_sync.router)
-app.include_router(routes_lifecycle.router)
-app.include_router(routes_settings.router)
+# Auth router is open; everything else requires a valid session.
+app.include_router(routes_auth.router)
+
+_protected = [Depends(require_user)]
+app.include_router(routes_findings.router, dependencies=_protected)
+app.include_router(routes_connectors.router, dependencies=_protected)
+app.include_router(routes_sync.router, dependencies=_protected)
+app.include_router(routes_lifecycle.router, dependencies=_protected)
+app.include_router(routes_settings.router, dependencies=_protected)
 
 
 @app.get("/health", tags=["meta"])

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VulnUnify — Overview</title>
   <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
   <script src="/vendor/chart.umd.min.js"></script>
 </head>
 <body>
@@ -14,6 +15,7 @@
       <a href="/" class="active">Overview</a>
       <a href="/connectors.html">Connectors &amp; Settings</a>
     </nav>
+    <span id="authBox" class="authbox"></span>
     <button id="syncBtn">Sync all connectors</button>
   </header>
   <main>
@@ -62,9 +64,7 @@
   </main>
 
   <script>
-    const api = (p, o) => fetch(p, o).then(r => r.json());
-    const esc = s => (s ?? "").toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-
+    // api() and esc() come from /app.js
     const SEV = ["critical", "high", "medium", "low", "info"];
     const SEV_COLOR = {critical:"#e5484d", high:"#f76808", medium:"#f5a623", low:"#3b82f6", info:"#6b7280"};
     Chart.defaults.color = "#8b93a7";
