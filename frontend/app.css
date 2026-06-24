@@ -15,6 +15,7 @@ nav a.active { color:var(--txt); background:var(--panel); border:1px solid var(-
 header > button { margin-left:12px; background:#2563eb; color:#fff; border:0; padding:8px 14px;
                   border-radius:6px; cursor:pointer; font-weight:600; }
 .authbox { margin-left:auto; display:flex; align-items:center; gap:10px; }
+[data-gate] { display:none !important; }   /* role-gated; revealed by app.js */
 
 main { padding:24px; max-width:1280px; margin:0 auto; }
 section { margin-top:28px; }

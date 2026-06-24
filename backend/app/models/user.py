@@ -16,8 +16,9 @@ from backend.app.models.base import Base
 
 
 class UserRole(str, Enum):
-    ADMIN = "admin"   # sees and manages everything
-    USER = "user"     # (roles phase) sees only findings assigned to them
+    SECURITY_ADMIN = "security_admin"  # full access incl. user mgmt + connector secrets
+    SECURITY_USER = "security_user"    # sees all findings/connectors, assigns to devs
+    DEV = "dev"                        # sees only findings assigned to them
 
 
 class User(Base):
@@ -27,6 +28,6 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     email: Mapped[str | None] = mapped_column(String(255))
     password_hash: Mapped[str | None] = mapped_column(String(255))  # null for SSO users
-    role: Mapped[str] = mapped_column(String(16), default=UserRole.USER.value)
+    role: Mapped[str] = mapped_column(String(16), default=UserRole.DEV.value)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

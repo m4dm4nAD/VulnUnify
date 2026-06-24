@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Status</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🛡️ VulnUnify</h1>
+    <nav>
+      <a href="/">Overview</a>
+      <a href="/connectors.html" data-gate="security">Connectors</a>
+      <a href="/settings.html" data-gate="security">Settings</a>
+      <a href="/status.html" class="active" data-gate="security">Status</a>
+      <a href="/users.html" data-gate="admin">Users</a>
+    </nav>
+    <span id="authBox" class="authbox"></span>
+    <button id="refreshBtn">Refresh</button>
+  </header>
+  <main>
+    <section>
+      <h2>Recent sync runs</h2>
+      <table><thead><tr><th>Connector</th><th>Status</th><th>Findings</th>
+        <th>Started</th><th>Duration</th><th>Error</th></tr></thead>
+        <tbody id="runs"></tbody></table>
+    </section>
+  </main>
+
+  <script>
+    function duration(a, b) {
+      if (!a || !b) return "—";
+      const ms = new Date(b) - new Date(a);
+      return ms < 1000 ? ms + "ms" : (ms / 1000).toFixed(1) + "s";
+    }
+
+    async function loadRuns() {
+      const runs = await api("/api/connectors/runs?limit=50");
+      document.getElementById("runs").innerHTML = runs.map(r => {
+        const cls = r.status === "error" ? "err" : r.status === "skipped" ? "skip" : "ok";
+        return `<tr><td>${esc(r.connector)}</td>
+          <td><span class="dot ${cls}"></span>${esc(r.status)}</td>
+          <td>${r.findings_count}</td>
+          <td>${r.started_at ? new Date(r.started_at).toLocaleString() : "—"}</td>
+          <td class="muted">${duration(r.started_at, r.finished_at)}</td>
+          <td class="muted">${esc(r.error || "")}</td></tr>`;
+      }).join("") || `<tr><td colspan="6" class="muted">No sync runs yet.</td></tr>`;
+    }
+
+    refreshBtn.onclick = loadRuns;
+    requireRole("security").then(loadRuns);
+  </script>
+</body>
+</html>

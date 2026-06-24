@@ -17,8 +17,9 @@ from backend.app.api import (
     routes_lifecycle,
     routes_settings,
     routes_sync,
+    routes_users,
 )
-from backend.app.api.deps import require_user
+from backend.app.api.deps import require_security, require_user
 from backend.app.config import settings
 from backend.app.db import SessionLocal
 from backend.app.scheduler import shutdown_scheduler, start_scheduler
@@ -53,15 +54,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Auth router is open; everything else requires a valid session.
+# Auth router is open. Findings + users do per-route role checks internally;
+# the rest are security-team only (devs are 403'd at the router boundary).
 app.include_router(routes_auth.router)
 
-_protected = [Depends(require_user)]
-app.include_router(routes_findings.router, dependencies=_protected)
-app.include_router(routes_connectors.router, dependencies=_protected)
-app.include_router(routes_sync.router, dependencies=_protected)
-app.include_router(routes_lifecycle.router, dependencies=_protected)
-app.include_router(routes_settings.router, dependencies=_protected)
+_logged_in = [Depends(require_user)]
+_security = [Depends(require_security)]
+app.include_router(routes_findings.router, dependencies=_logged_in)
+app.include_router(routes_users.router, dependencies=_logged_in)
+app.include_router(routes_connectors.router, dependencies=_security)
+app.include_router(routes_sync.router, dependencies=_security)
+app.include_router(routes_lifecycle.router, dependencies=_security)
+app.include_router(routes_settings.router, dependencies=_security)
 
 
 @app.get("/health", tags=["meta"])

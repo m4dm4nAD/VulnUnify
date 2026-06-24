@@ -13,7 +13,10 @@
     <h1>🛡️ VulnUnify</h1>
     <nav>
       <a href="/" class="active">Overview</a>
-      <a href="/connectors.html">Connectors &amp; Settings</a>
+      <a href="/connectors.html" data-gate="security">Connectors</a>
+      <a href="/settings.html" data-gate="security">Settings</a>
+      <a href="/status.html" data-gate="security">Status</a>
+      <a href="/users.html" data-gate="admin">Users</a>
     </nav>
     <span id="authBox" class="authbox"></span>
     <button id="syncBtn">Sync all connectors</button>
@@ -58,7 +61,7 @@
         <input id="fQ" placeholder="search title…" />
       </div>
       <table><thead><tr><th>Severity</th><th>Status</th><th>Source</th><th>Title</th>
-        <th>Asset</th><th>Age</th><th>Triage</th></tr></thead>
+        <th>Asset</th><th>Age</th><th>Assignee</th><th>Triage</th></tr></thead>
         <tbody id="findings"></tbody></table>
     </section>
   </main>
@@ -166,8 +169,25 @@
           <td>${esc(f.source)}</td><td>${esc(f.title)}</td>
           <td class="muted">${esc(f.asset?.name || f.asset?.identifier)}</td>
           <td>${age}${sla}</td>
+          <td>${assigneeCell(f)}</td>
           <td><select onchange="triage(${f.id}, this.value)">${opts}</select></td></tr>`;
-      }).join("") || `<tr><td colspan="7" class="muted">No findings — adjust filters or run a sync.</td></tr>`;
+      }).join("") || `<tr><td colspan="8" class="muted">No findings — adjust filters or run a sync.</td></tr>`;
+    }
+
+    function assigneeCell(f) {
+      if (!window._canAssign) return `<span class="muted">${esc(f.assigned_username || "—")}</span>`;
+      const opts = [`<option value="">Unassigned</option>`].concat(
+        (window._USERS || []).map(u =>
+          `<option value="${u.id}" ${u.id === f.assigned_user_id ? "selected" : ""}>${esc(u.username)}</option>`)
+      ).join("");
+      return `<select onchange="assignFinding(${f.id}, this.value)">${opts}</select>`;
+    }
+
+    async function assignFinding(id, val) {
+      await api(`/api/findings/${id}/assign`, { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: val === "" ? null : Number(val) }) });
+      refresh();
     }
 
     async function triage(id, state) {
@@ -190,7 +210,15 @@
     [fStatus, fSeverity, fCategory].forEach(el => el.onchange = loadFindings);
     fOverdue.onchange = loadFindings;
     fQ.oninput = () => { clearTimeout(window._t); window._t = setTimeout(loadFindings, 300); };
-    refresh();
+
+    (async function init() {
+      const me = await window.mePromise;
+      window._canAssign = me.role !== "dev";   // security team can assign
+      if (window._canAssign) {
+        try { window._USERS = await api("/api/users"); } catch { window._USERS = []; }
+      }
+      refresh();
+    })();
   </script>
 </body>
 </html>

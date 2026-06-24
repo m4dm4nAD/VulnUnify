@@ -17,14 +17,25 @@ def get_current_user(request: Request, db: DbSession = Depends(get_db)) -> User 
 
 
 def require_user(user: User | None = Depends(get_current_user)) -> User:
-    """Gate a route on being logged in."""
+    """Gate a route on being logged in (any role)."""
     if user is None:
         raise HTTPException(status_code=401, detail="authentication required")
     return user
 
 
-def require_admin(user: User = Depends(require_user)) -> User:
-    """Gate a route on the admin role (used by the roles phase)."""
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="admin role required")
+SECURITY_ROLES = {"security_admin", "security_user"}
+
+
+def require_security(user: User = Depends(require_user)) -> User:
+    """Security team: sees all findings/connectors, assigns work. Excludes devs."""
+    if user.role not in SECURITY_ROLES:
+        raise HTTPException(status_code=403, detail="security role required")
     return user
+
+
+def require_security_admin(user: User = Depends(require_user)) -> User:
+    """Full access: user management + connector credentials."""
+    if user.role != "security_admin":
+        raise HTTPException(status_code=403, detail="security_admin role required")
+    return user
+

@@ -91,7 +91,7 @@ def seed_initial_admin(db: DbSession) -> None:
     db.add(
         User(
             username=settings.initial_admin_username,
-            role="admin",
+            role="security_admin",
             is_active=True,
             password_hash=hash_password(password),
         )

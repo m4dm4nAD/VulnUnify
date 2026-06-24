@@ -39,6 +39,9 @@ class FindingOut(BaseModel):
     first_seen: datetime | None
     last_seen: datetime | None
     resolved_at: datetime | None
+    # assignment
+    assigned_user_id: int | None
+    assigned_username: str | None
     # triage
     triage_state: str
     triage_reason: str | None

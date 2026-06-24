@@ -61,6 +61,16 @@ class Finding(Base, TimestampMixin):
     asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
     asset: Mapped["Asset"] = relationship(back_populates="findings")  # noqa: F821
 
+    # Assignment: the dev (or any user) responsible for this finding.
+    assigned_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    assigned_user: Mapped["User | None"] = relationship("User")  # noqa: F821
+
+    @property
+    def assigned_username(self) -> str | None:
+        return self.assigned_user.username if self.assigned_user else None
+
     @property
     def age_days(self) -> int | None:
         """Days since the finding was first seen."""

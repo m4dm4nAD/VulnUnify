@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.api.deps import require_security_admin
 from backend.app.config import settings
 from backend.app.connectors.base import BaseConnector
 from backend.app.connectors.registry import all_connectors, get_connector
+from backend.app.models.user import User
 from backend.app.db import get_db
 from backend.app.models.connector_run import ConnectorRun
 from backend.app.schemas.finding import (
@@ -86,13 +88,13 @@ def list_runs(db: Session = Depends(get_db), limit: int = 50):
 
 
 @router.get("/{name}/config", response_model=ConnectorConfigOut)
-def get_config(name: str):
+def get_config(name: str, _: User = Depends(require_security_admin)):
     """The connector's configurable fields and whether each is set (secrets masked)."""
     return _config_payload(_require(name))
 
 
 @router.put("/{name}/config", response_model=ConnectorConfigOut)
-def update_config(name: str, body: ConfigUpdateIn):
+def update_config(name: str, body: ConfigUpdateIn, _: User = Depends(require_security_admin)):
     """Store credential/config overrides (encrypted). Empty value clears a key."""
     connector = _require(name)
     allowed = {f.key for f in connector.config_fields}
@@ -104,7 +106,7 @@ def update_config(name: str, body: ConfigUpdateIn):
 
 
 @router.delete("/{name}/config", response_model=ConnectorConfigOut)
-def reset_config(name: str):
+def reset_config(name: str, _: User = Depends(require_security_admin)):
     """Clear all stored overrides for a connector (revert to env/.env)."""
     _require(name)
     credentials.clear(name)

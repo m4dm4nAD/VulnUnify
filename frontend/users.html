@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Users</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🛡️ VulnUnify</h1>
+    <nav>
+      <a href="/">Overview</a>
+      <a href="/connectors.html" data-gate="security">Connectors</a>
+      <a href="/settings.html" data-gate="security">Settings</a>
+      <a href="/status.html" data-gate="security">Status</a>
+      <a href="/users.html" class="active" data-gate="admin">Users</a>
+    </nav>
+    <span id="authBox" class="authbox"></span>
+  </header>
+  <main>
+    <section>
+      <h2>Add user</h2>
+      <div class="filters">
+        <input id="nuUser" placeholder="username" autocomplete="off" />
+        <input id="nuEmail" placeholder="email (optional)" autocomplete="off" />
+        <input id="nuPass" type="password" placeholder="password" autocomplete="new-password" />
+        <select id="nuRole">
+          <option value="dev">dev</option>
+          <option value="security_user">security_user</option>
+          <option value="security_admin">security_admin</option>
+        </select>
+        <button class="mini" data-primary id="nuAdd" onclick="addUser()">Create</button>
+        <span id="nuErr" class="muted"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Users</h2>
+      <table><thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Active</th>
+        <th>Created</th><th></th></tr></thead>
+        <tbody id="users"></tbody></table>
+    </section>
+  </main>
+
+  <script>
+    const ROLES = ["dev", "security_user", "security_admin"];
+
+    async function loadUsers() {
+      const users = await api("/api/users");
+      document.getElementById("users").innerHTML = users.map(u => {
+        const roleSel = `<select onchange="changeRole(${u.id}, this.value)">${
+          ROLES.map(r => `<option value="${r}" ${r === u.role ? "selected" : ""}>${r}</option>`).join("")}</select>`;
+        const self = window.ME && window.ME.id === u.id;
+        return `<tr>
+          <td>${esc(u.username)}${self ? ' <span class="muted">(you)</span>' : ""}</td>
+          <td class="muted">${esc(u.email || "—")}</td>
+          <td>${roleSel}</td>
+          <td>${u.is_active ? "yes" : '<span class="muted">no</span>'}</td>
+          <td class="muted">—</td>
+          <td><div class="row-actions">
+            <button class="mini" onclick="resetPw(${u.id}, '${esc(u.username)}')">Reset password</button>
+            <button class="mini" onclick="toggleActive(${u.id}, ${!u.is_active})">${u.is_active ? "Deactivate" : "Activate"}</button>
+            ${self ? "" : `<button class="mini" onclick="delUser(${u.id}, '${esc(u.username)}')">Delete</button>`}
+          </div></td></tr>`;
+      }).join("");
+    }
+
+    async function addUser() {
+      const err = document.getElementById("nuErr"); err.textContent = "";
+      const body = { username: nuUser.value.trim(), email: nuEmail.value.trim() || null,
+                     password: nuPass.value, role: nuRole.value };
+      if (!body.username || !body.password) { err.textContent = "username and password required"; return; }
+      const res = await fetch("/api/users", { method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (res.ok) { nuUser.value = nuEmail.value = nuPass.value = ""; loadUsers(); }
+      else { err.textContent = res.status === 409 ? "username already exists" : "could not create user"; }
+    }
+
+    async function changeRole(id, role) {
+      const res = await fetch(`/api/users/${id}`, { method: "PATCH", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) });
+      if (!res.ok) alert((await res.json()).detail || "could not change role");
+      loadUsers();
+    }
+
+    async function toggleActive(id, active) {
+      await fetch(`/api/users/${id}`, { method: "PATCH", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: active }) });
+      loadUsers();
+    }
+
+    async function resetPw(id, name) {
+      const pw = prompt(`New password for ${name}:`);
+      if (!pw) return;
+      await fetch(`/api/users/${id}/password`, { method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw }) });
+      alert("Password updated.");
+    }
+
+    async function delUser(id, name) {
+      if (!confirm(`Delete ${name}? Their assigned findings become unassigned.`)) return;
+      const res = await fetch(`/api/users/${id}`, { method: "DELETE", credentials: "same-origin" });
+      if (!res.ok) alert((await res.json()).detail || "could not delete");
+      loadUsers();
+    }
+
+    requireRole("admin").then(loadUsers);
+  </script>
+</body>
+</html>
