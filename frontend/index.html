@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VulnUnify</title>
+  <script src="/vendor/chart.umd.min.js"></script>
   <style>
     :root { --bg:#0f1115; --panel:#181b22; --line:#262b36; --txt:#e6e9ef; --muted:#8b93a7;
             --crit:#e5484d; --high:#f76808; --med:#f5a623; --low:#3b82f6; --info:#6b7280;
@@ -23,6 +24,12 @@
     .card .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
     section { margin-top:28px; }
     h2 { font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+    .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
+    .chart-card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+    .chart-card h3 { margin:0 0 10px; font-size:13px; font-weight:600; color:var(--txt); }
+    .chart-wrap { position:relative; height:220px; }
+    .wide { grid-column:span 2; }
+    @media (max-width:720px){ .wide { grid-column:span 1; } }
     table { width:100%; border-collapse:collapse; background:var(--panel);
             border:1px solid var(--line); border-radius:10px; overflow:hidden; }
     th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); }
@@ -53,6 +60,22 @@
   </header>
   <main>
     <div class="cards" id="cards"></div>
+
+    <section>
+      <h2>Overview</h2>
+      <div class="charts">
+        <div class="chart-card"><h3>Open findings by severity</h3>
+          <div class="chart-wrap"><canvas id="severityChart"></canvas></div></div>
+        <div class="chart-card"><h3>Finding status</h3>
+          <div class="chart-wrap"><canvas id="statusChart"></canvas></div></div>
+        <div class="chart-card wide"><h3>SLA posture by severity</h3>
+          <div class="chart-wrap"><canvas id="slaChart"></canvas></div></div>
+        <div class="chart-card"><h3>Open findings by category</h3>
+          <div class="chart-wrap"><canvas id="categoryChart"></canvas></div></div>
+        <div class="chart-card wide"><h3>Open findings by source</h3>
+          <div class="chart-wrap"><canvas id="sourceChart"></canvas></div></div>
+      </div>
+    </section>
 
     <section>
       <h2>Connectors</h2>
@@ -91,6 +114,75 @@
     const api = (p, o) => fetch(p, o).then(r => r.json());
     const esc = s => (s ?? "").toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
+    const SEV = ["critical", "high", "medium", "low", "info"];
+    const SEV_COLOR = {critical:"#e5484d", high:"#f76808", medium:"#f5a623", low:"#3b82f6", info:"#6b7280"};
+    Chart.defaults.color = "#8b93a7";
+    Chart.defaults.borderColor = "#262b36";
+    Chart.defaults.font.family = "system-ui, sans-serif";
+    Chart.defaults.plugins.legend.labels.boxWidth = 12;
+    window.charts = {};
+
+    function draw(id, config) {
+      if (window.charts[id]) window.charts[id].destroy();
+      window.charts[id] = new Chart(document.getElementById(id), config);
+    }
+    const noGrid = { grid: { display: false } };
+    const baseBar = { responsive: true, maintainAspectRatio: false,
+                      plugins: { legend: { display: false } } };
+
+    function loadCharts(s) {
+      // Severity doughnut
+      draw("severityChart", {
+        type: "doughnut",
+        data: { labels: SEV.map(x => x[0].toUpperCase() + x.slice(1)),
+          datasets: [{ data: SEV.map(x => s.by_severity[x] || 0),
+            backgroundColor: SEV.map(x => SEV_COLOR[x]), borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: "62%",
+          plugins: { legend: { position: "right" } } },
+      });
+      // Status doughnut
+      draw("statusChart", {
+        type: "doughnut",
+        data: { labels: ["Open", "Resolved", "Suppressed"],
+          datasets: [{ data: [s.open_findings, s.resolved_findings, s.suppressed_findings],
+            backgroundColor: ["#60a5fa", "#22c55e", "#6b7280"], borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: "62%",
+          plugins: { legend: { position: "right" } } },
+      });
+      // SLA posture by severity (stacked: within SLA vs breached)
+      const breached = SEV.map(x => (s.breached_by_severity || {})[x] || 0);
+      const within = SEV.map((x, i) => (s.by_severity[x] || 0) - breached[i]);
+      draw("slaChart", {
+        type: "bar",
+        data: { labels: SEV.map(x => x[0].toUpperCase() + x.slice(1)),
+          datasets: [
+            { label: "Within SLA", data: within, backgroundColor: "#22c55e", borderRadius: 3 },
+            { label: "SLA breached", data: breached, backgroundColor: "#e5484d", borderRadius: 3 },
+          ] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: "bottom" } },
+          scales: { x: { stacked: true, ...noGrid }, y: { stacked: true, beginAtZero: true,
+            ticks: { precision: 0 } } } },
+      });
+      // Category bar
+      const cat = Object.entries(s.by_category);
+      draw("categoryChart", {
+        type: "bar",
+        data: { labels: cat.map(([k]) => k),
+          datasets: [{ data: cat.map(([, v]) => v), backgroundColor: "#3b82f6", borderRadius: 3 }] },
+        options: { ...baseBar, scales: { x: noGrid, y: { beginAtZero: true, ticks: { precision: 0 } } } },
+      });
+      // Source horizontal bar
+      const src = Object.entries(s.by_source).sort((a, b) => b[1] - a[1]);
+      draw("sourceChart", {
+        type: "bar",
+        data: { labels: src.map(([k]) => k),
+          datasets: [{ data: src.map(([, v]) => v), backgroundColor: "#14b8a6", borderRadius: 3 }] },
+        options: { ...baseBar, indexAxis: "y",
+          scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: noGrid } },
+      });
+    }
+
     async function loadStats() {
       const s = await api("/api/stats");
       const sev = s.by_severity || {};
@@ -103,6 +195,7 @@
         ([l, n, alert]) => `<div class="card ${alert && n ? 'alert' : ''}">
           <div class="n">${n}</div><div class="l">${l}</div></div>`
       ).join("");
+      loadCharts(s);
     }
 
     async function loadConnectors() {

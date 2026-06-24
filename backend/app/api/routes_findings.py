@@ -109,6 +109,10 @@ def stats(db: Session = Depends(get_db)):
         ).all()
         return {str(k): v for k, v in rows}
 
+    breached_rows = db.execute(
+        select(Finding.severity, func.count()).where(_overdue_clause()).group_by(Finding.severity)
+    ).all()
+
     return StatsOut(
         total_findings=db.scalar(select(func.count()).select_from(Finding)) or 0,
         total_assets=db.scalar(select(func.count()).select_from(Asset)) or 0,
@@ -119,4 +123,5 @@ def stats(db: Session = Depends(get_db)):
         by_severity=grouped(Finding.severity),
         by_category=grouped(Finding.category),
         by_source=grouped(Finding.source),
+        breached_by_severity={str(k): v for k, v in breached_rows},
     )

@@ -98,3 +98,5 @@ class StatsOut(BaseModel):
     by_severity: dict[str, int]
     by_category: dict[str, int]
     by_source: dict[str, int]
+    # Open findings past their SLA deadline, per severity (subset of by_severity).
+    breached_by_severity: dict[str, int]
