@@ -76,6 +76,29 @@ class ConnectorStatus(BaseModel):
     last_findings_count: int | None = None
 
 
+class ConfigFieldOut(BaseModel):
+    key: str
+    label: str
+    secret: bool
+    required: bool
+    placeholder: str | None
+    is_set: bool
+    source: str          # db | env | unset
+    value: str           # actual value for non-secret fields; "" for secrets
+    display: str         # what to show (masked for secrets)
+
+
+class ConnectorConfigOut(BaseModel):
+    name: str
+    configured: bool
+    fields: list[ConfigFieldOut]
+
+
+class ConfigUpdateIn(BaseModel):
+    # {settings_key: value}. Empty string clears that key's override.
+    values: dict[str, str]
+
+
 class ConnectorRunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

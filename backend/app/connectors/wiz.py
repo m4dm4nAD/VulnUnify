@@ -10,8 +10,12 @@ from datetime import datetime
 
 import httpx
 
-from backend.app.config import settings
-from backend.app.connectors.base import BaseConnector, NormalizedAsset, NormalizedFinding
+from backend.app.connectors.base import (
+    BaseConnector,
+    ConfigField,
+    NormalizedAsset,
+    NormalizedFinding,
+)
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus
 from backend.app.normalize import severity as sev
 
@@ -67,18 +71,26 @@ query Issues($first: Int, $after: String, $filterBy: IssueFilters) {
 class WizConnector(BaseConnector):
     name = "wiz"
     category = FindingCategory.CLOUD_POSTURE
+    config_fields = [
+        ConfigField(key="wiz_client_id", label="Client ID"),
+        ConfigField(key="wiz_client_secret", label="Client secret", secret=True),
+        ConfigField(key="wiz_api_url", label="API URL (GraphQL)", required=False,
+                    placeholder="https://api.us1.app.wiz.io/graphql"),
+        ConfigField(key="wiz_auth_url", label="Auth URL", required=False,
+                    placeholder="https://auth.app.wiz.io/oauth/token"),
+    ]
 
     def is_configured(self) -> bool:
-        return bool(settings.wiz_client_id and settings.wiz_client_secret)
+        return bool(self.config("wiz_client_id") and self.config("wiz_client_secret"))
 
     def _get_token(self) -> str:
         resp = httpx.post(
-            settings.wiz_auth_url,
+            self.config("wiz_auth_url"),
             data={
                 "grant_type": "client_credentials",
                 "audience": _AUTH_AUDIENCE,
-                "client_id": settings.wiz_client_id,
-                "client_secret": settings.wiz_client_secret,
+                "client_id": self.config("wiz_client_id"),
+                "client_secret": self.config("wiz_client_secret"),
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30.0,
@@ -96,7 +108,7 @@ class WizConnector(BaseConnector):
             "filterBy": {"status": ["OPEN", "IN_PROGRESS"]},
         }
         with httpx.Client(
-            base_url=settings.wiz_api_url,
+            base_url=self.config("wiz_api_url"),
             headers={"Authorization": f"Bearer {token}"},
             timeout=60.0,
         ) as client:

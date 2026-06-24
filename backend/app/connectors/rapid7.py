@@ -16,7 +16,12 @@ from __future__ import annotations
 import httpx
 
 from backend.app.config import settings
-from backend.app.connectors.base import BaseConnector, NormalizedAsset, NormalizedFinding
+from backend.app.connectors.base import (
+    BaseConnector,
+    ConfigField,
+    NormalizedAsset,
+    NormalizedFinding,
+)
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus
 from backend.app.normalize import severity as sev
 
@@ -26,17 +31,25 @@ _PAGE_SIZE = 500
 class Rapid7Connector(BaseConnector):
     name = "rapid7"
     category = FindingCategory.VULNERABILITY
+    config_fields = [
+        ConfigField(key="rapid7_base_url", label="Console URL",
+                    placeholder="https://insightvm.example.com:3780"),
+        ConfigField(key="rapid7_username", label="Username"),
+        ConfigField(key="rapid7_password", label="Password", secret=True),
+    ]
 
     def is_configured(self) -> bool:
         return bool(
-            settings.rapid7_base_url and settings.rapid7_username and settings.rapid7_password
+            self.config("rapid7_base_url")
+            and self.config("rapid7_username")
+            and self.config("rapid7_password")
         )
 
     def _client(self) -> httpx.Client:
         return httpx.Client(
-            base_url=settings.rapid7_base_url,
-            auth=httpx.BasicAuth(settings.rapid7_username, settings.rapid7_password),
-            verify=settings.rapid7_verify_ssl,
+            base_url=self.config("rapid7_base_url"),
+            auth=httpx.BasicAuth(self.config("rapid7_username"), self.config("rapid7_password")),
+            verify=settings.rapid7_verify_ssl,  # bool; configured via env only
             headers={"Accept": "application/json"},
             timeout=60.0,
         )

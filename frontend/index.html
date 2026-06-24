@@ -3,59 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VulnUnify</title>
+  <title>VulnUnify — Overview</title>
+  <link rel="stylesheet" href="/app.css" />
   <script src="/vendor/chart.umd.min.js"></script>
-  <style>
-    :root { --bg:#0f1115; --panel:#181b22; --line:#262b36; --txt:#e6e9ef; --muted:#8b93a7;
-            --crit:#e5484d; --high:#f76808; --med:#f5a623; --low:#3b82f6; --info:#6b7280;
-            --green:#22c55e; }
-    * { box-sizing:border-box; }
-    body { margin:0; font:14px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--txt); }
-    header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex;
-             align-items:center; gap:16px; }
-    header h1 { font-size:18px; margin:0; }
-    header button { margin-left:auto; background:#2563eb; color:#fff; border:0; padding:8px 14px;
-                    border-radius:6px; cursor:pointer; font-weight:600; }
-    main { padding:24px; max-width:1280px; margin:0 auto; }
-    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; }
-    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
-    .card .n { font-size:24px; font-weight:700; }
-    .card.alert .n { color:var(--crit); }
-    .card .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
-    section { margin-top:28px; }
-    h2 { font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-    .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
-    .chart-card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
-    .chart-card h3 { margin:0 0 10px; font-size:13px; font-weight:600; color:var(--txt); }
-    .chart-wrap { position:relative; height:220px; }
-    .wide { grid-column:span 2; }
-    @media (max-width:720px){ .wide { grid-column:span 1; } }
-    table { width:100%; border-collapse:collapse; background:var(--panel);
-            border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-    th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); }
-    th { color:var(--muted); font-weight:600; font-size:12px; }
-    tr:last-child td { border-bottom:0; }
-    .pill { padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase; }
-    .sev-critical{background:var(--crit);color:#fff} .sev-high{background:var(--high);color:#fff}
-    .sev-medium{background:var(--med);color:#000} .sev-low{background:var(--low);color:#fff}
-    .sev-info{background:var(--info);color:#fff}
-    .st-open{background:#1f2937;color:#cbd5e1} .st-resolved{background:var(--green);color:#04210f}
-    .st-false_positive,.st-accepted_risk,.st-snoozed{background:#374151;color:#9ca3af}
-    .sla{background:var(--crit);color:#fff;margin-left:6px}
-    .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
-    .ok{background:#22c55e}.off{background:#4b5563}.err{background:var(--crit)}.skip{background:var(--med)}
-    select,input{background:#0c0e13;color:var(--txt);border:1px solid var(--line);
-                 border-radius:6px;padding:6px 8px}
-    .filters{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center}
-    .filters label{color:var(--muted);font-size:12px;display:flex;gap:4px;align-items:center}
-    .muted{color:var(--muted)}
-    td select{padding:3px 6px;font-size:12px}
-  </style>
 </head>
 <body>
   <header>
     <h1>🛡️ VulnUnify</h1>
-    <span class="muted">unified vulnerability management</span>
+    <nav>
+      <a href="/" class="active">Overview</a>
+      <a href="/connectors.html">Connectors &amp; Settings</a>
+    </nav>
     <button id="syncBtn">Sync all connectors</button>
   </header>
   <main>
@@ -75,13 +33,6 @@
         <div class="chart-card wide"><h3>Open findings by source</h3>
           <div class="chart-wrap"><canvas id="sourceChart"></canvas></div></div>
       </div>
-    </section>
-
-    <section>
-      <h2>Connectors</h2>
-      <table><thead><tr><th>Connector</th><th>Category</th><th>Configured</th>
-        <th>Last run</th><th>Status</th><th>Findings</th></tr></thead>
-        <tbody id="connectors"></tbody></table>
     </section>
 
     <section>
@@ -131,7 +82,6 @@
                       plugins: { legend: { display: false } } };
 
     function loadCharts(s) {
-      // Severity doughnut
       draw("severityChart", {
         type: "doughnut",
         data: { labels: SEV.map(x => x[0].toUpperCase() + x.slice(1)),
@@ -140,7 +90,6 @@
         options: { responsive: true, maintainAspectRatio: false, cutout: "62%",
           plugins: { legend: { position: "right" } } },
       });
-      // Status doughnut
       draw("statusChart", {
         type: "doughnut",
         data: { labels: ["Open", "Resolved", "Suppressed"],
@@ -149,7 +98,6 @@
         options: { responsive: true, maintainAspectRatio: false, cutout: "62%",
           plugins: { legend: { position: "right" } } },
       });
-      // SLA posture by severity (stacked: within SLA vs breached)
       const breached = SEV.map(x => (s.breached_by_severity || {})[x] || 0);
       const within = SEV.map((x, i) => (s.by_severity[x] || 0) - breached[i]);
       draw("slaChart", {
@@ -164,7 +112,6 @@
           scales: { x: { stacked: true, ...noGrid }, y: { stacked: true, beginAtZero: true,
             ticks: { precision: 0 } } } },
       });
-      // Category bar
       const cat = Object.entries(s.by_category);
       draw("categoryChart", {
         type: "bar",
@@ -172,7 +119,6 @@
           datasets: [{ data: cat.map(([, v]) => v), backgroundColor: "#3b82f6", borderRadius: 3 }] },
         options: { ...baseBar, scales: { x: noGrid, y: { beginAtZero: true, ticks: { precision: 0 } } } },
       });
-      // Source horizontal bar
       const src = Object.entries(s.by_source).sort((a, b) => b[1] - a[1]);
       draw("sourceChart", {
         type: "bar",
@@ -196,19 +142,6 @@
           <div class="n">${n}</div><div class="l">${l}</div></div>`
       ).join("");
       loadCharts(s);
-    }
-
-    async function loadConnectors() {
-      const cs = await api("/api/connectors");
-      document.getElementById("connectors").innerHTML = cs.map(c => {
-        const cls = !c.configured ? "off" : c.last_status === "error" ? "err"
-                  : c.last_status === "skipped" ? "skip" : "ok";
-        return `<tr><td>${esc(c.name)}</td><td>${esc(c.category)}</td>
-          <td>${c.configured ? "yes" : "<span class='muted'>no</span>"}</td>
-          <td>${c.last_run_at ? new Date(c.last_run_at).toLocaleString() : "—"}</td>
-          <td><span class="dot ${cls}"></span>${esc(c.last_status || "never run")}</td>
-          <td>${c.last_findings_count ?? "—"}</td></tr>`;
-      }).join("");
     }
 
     const TRIAGE = {active:"— triage —", false_positive:"False positive",
@@ -246,7 +179,7 @@
       refresh();
     }
 
-    function refresh() { loadStats(); loadConnectors(); loadFindings(); }
+    function refresh() { loadStats(); loadFindings(); }
 
     syncBtn.onclick = async () => {
       syncBtn.textContent = "Syncing…"; syncBtn.disabled = true;

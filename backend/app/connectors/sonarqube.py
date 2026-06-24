@@ -15,8 +15,12 @@ from datetime import datetime
 
 import httpx
 
-from backend.app.config import settings
-from backend.app.connectors.base import BaseConnector, NormalizedAsset, NormalizedFinding
+from backend.app.connectors.base import (
+    BaseConnector,
+    ConfigField,
+    NormalizedAsset,
+    NormalizedFinding,
+)
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus, Severity
 
 _SEVERITY_MAP = {
@@ -39,21 +43,30 @@ _PAGE_SIZE = 500
 class SonarQubeConnector(BaseConnector):
     name = "sonarqube"
     category = FindingCategory.SAST
+    config_fields = [
+        ConfigField(key="sonarqube_token", label="Token", secret=True),
+        ConfigField(key="sonarqube_base_url", label="Base URL", required=False,
+                    placeholder="https://sonarcloud.io"),
+        ConfigField(key="sonarqube_organization", label="Organization", required=False,
+                    placeholder="required for SonarCloud"),
+        ConfigField(key="sonarqube_project_keys", label="Project keys", required=False,
+                    placeholder="comma-separated (optional)"),
+    ]
 
     def is_configured(self) -> bool:
-        return bool(settings.sonarqube_token)
+        return bool(self.config("sonarqube_token"))
 
     def fetch(self) -> list[NormalizedFinding]:
         params = {"types": "VULNERABILITY", "ps": _PAGE_SIZE}
-        if settings.sonarqube_organization:
-            params["organization"] = settings.sonarqube_organization
-        if settings.sonarqube_project_keys:
-            params["componentKeys"] = settings.sonarqube_project_keys
+        if self.config("sonarqube_organization"):
+            params["organization"] = self.config("sonarqube_organization")
+        if self.config("sonarqube_project_keys"):
+            params["componentKeys"] = self.config("sonarqube_project_keys")
 
         findings: list[NormalizedFinding] = []
         with httpx.Client(
-            base_url=settings.sonarqube_base_url,
-            auth=httpx.BasicAuth(settings.sonarqube_token, ""),
+            base_url=self.config("sonarqube_base_url"),
+            auth=httpx.BasicAuth(self.config("sonarqube_token"), ""),
             timeout=60.0,
         ) as client:
             page = 1

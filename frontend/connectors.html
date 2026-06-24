@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Connectors &amp; Settings</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <header>
+    <h1>🛡️ VulnUnify</h1>
+    <nav>
+      <a href="/">Overview</a>
+      <a href="/connectors.html" class="active">Connectors &amp; Settings</a>
+    </nav>
+    <button id="syncBtn">Sync all connectors</button>
+  </header>
+  <main>
+    <section>
+      <h2>Connectors</h2>
+      <table><thead><tr><th>Connector</th><th>Category</th><th>Configured</th>
+        <th>Last run</th><th>Status</th><th>Findings</th><th></th></tr></thead>
+        <tbody id="connectors"></tbody></table>
+      <p class="muted" style="margin-top:10px">
+        Connectors are configured via environment variables in <code>.env</code>.
+        Unconfigured connectors are skipped during sync. See
+        <code>.env.example</code> for the keys each one needs.</p>
+    </section>
+
+    <section>
+      <h2>Sync schedule</h2>
+      <div class="kv" id="scheduler"></div>
+    </section>
+
+    <section>
+      <h2>SLA policy <span class="muted" style="text-transform:none">— days from first seen, by severity</span></h2>
+      <div class="kv" id="sla"></div>
+    </section>
+
+    <section>
+      <h2>Recent sync runs</h2>
+      <table><thead><tr><th>Connector</th><th>Status</th><th>Findings</th>
+        <th>Started</th><th>Error</th></tr></thead>
+        <tbody id="runs"></tbody></table>
+    </section>
+  </main>
+
+  <div class="modal-overlay" id="cfgOverlay">
+    <div class="modal">
+      <h3 id="cfgTitle"></h3>
+      <div class="sub">Stored encrypted in the database; overrides values from <code>.env</code>.
+        Existing secrets are never shown — leave a secret blank to keep it.</div>
+      <div id="cfgFields"></div>
+      <div class="modal-actions">
+        <button class="mini" onclick="resetConfig()">Reset to .env</button>
+        <span class="spacer"></span>
+        <button class="mini" onclick="closeConfig()">Cancel</button>
+        <button class="mini" data-primary id="cfgSave" onclick="saveConfig()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const api = (p, o) => fetch(p, o).then(r => r.json());
+    const esc = s => (s ?? "").toString().replace(/[&<>"]/g,
+      c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const card = (n, l) => `<div class="card"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`;
+
+    async function loadConnectors() {
+      const cs = await api("/api/connectors");
+      document.getElementById("connectors").innerHTML = cs.map(c => {
+        const cls = !c.configured ? "off" : c.last_status === "error" ? "err"
+                  : c.last_status === "skipped" ? "skip" : "ok";
+        return `<tr><td>${esc(c.name)}</td><td>${esc(c.category)}</td>
+          <td>${c.configured ? "yes" : "<span class='muted'>no</span>"}</td>
+          <td>${c.last_run_at ? new Date(c.last_run_at).toLocaleString() : "—"}</td>
+          <td><span class="dot ${cls}"></span>${esc(c.last_status || "never run")}</td>
+          <td>${c.last_findings_count ?? "—"}</td>
+          <td><div class="row-actions">
+            <button class="mini" onclick="openConfig('${esc(c.name)}')">Configure</button>
+            <button class="mini" onclick="syncOne('${esc(c.name)}', this)">Sync</button>
+          </div></td></tr>`;
+      }).join("");
+    }
+
+    let cfgState = null;
+    async function openConfig(name) {
+      cfgState = await api(`/api/connectors/${name}/config`);
+      document.getElementById("cfgTitle").textContent = "Configure " + name;
+      document.getElementById("cfgFields").innerHTML = cfgState.fields.map((f, i) => {
+        const ph = f.secret ? (f.is_set ? f.display : (f.placeholder || ""))
+                            : (f.placeholder || "");
+        const val = f.secret ? "" : esc(f.value);
+        return `<div class="field">
+          <label>${esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}
+            <span class="src">${esc(f.source)}</span></label>
+          <input id="cfg_${i}" type="${f.secret ? 'password' : 'text'}"
+            placeholder="${esc(ph)}" value="${val}" autocomplete="off" spellcheck="false" /></div>`;
+      }).join("");
+      document.getElementById("cfgOverlay").classList.add("show");
+    }
+    function closeConfig() {
+      document.getElementById("cfgOverlay").classList.remove("show");
+      cfgState = null;
+    }
+    async function saveConfig() {
+      const values = {};
+      cfgState.fields.forEach((f, i) => {
+        const cur = document.getElementById("cfg_" + i).value;
+        const initial = f.secret ? "" : f.value;   // secrets start blank
+        if (cur !== initial) values[f.key] = cur;  // changed -> set; blanked -> "" clears
+      });
+      const btn = document.getElementById("cfgSave"); btn.disabled = true; btn.textContent = "Saving…";
+      try {
+        await api(`/api/connectors/${cfgState.name}/config`, { method: "PUT",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values }) });
+      } finally { btn.disabled = false; btn.textContent = "Save"; }
+      closeConfig(); refresh();
+    }
+    async function resetConfig() {
+      if (!confirm(`Clear all stored credentials for ${cfgState.name} and revert to .env?`)) return;
+      await api(`/api/connectors/${cfgState.name}/config`, { method: "DELETE" });
+      closeConfig(); refresh();
+    }
+
+    async function loadSettings() {
+      const s = await api("/api/settings");
+      const sc = s.scheduler || {};
+      document.getElementById("scheduler").innerHTML = [
+        card(sc.enabled ? "Enabled" : "Disabled", "Scheduler"),
+        card(sc.interval_minutes + " min", "Interval"),
+        card(sc.running ? "Yes" : "No", "Running"),
+        card(sc.next_run_at ? new Date(sc.next_run_at).toLocaleString() : "—", "Next run"),
+      ].join("");
+      const sla = s.sla_days || {};
+      document.getElementById("sla").innerHTML = ["critical", "high", "medium", "low"]
+        .map(k => card((sla[k] ?? "—") + "d", k)).join("");
+    }
+
+    async function loadRuns() {
+      const runs = await api("/api/connectors/runs?limit=20");
+      document.getElementById("runs").innerHTML = runs.map(r => {
+        const cls = r.status === "error" ? "err" : r.status === "skipped" ? "skip" : "ok";
+        return `<tr><td>${esc(r.connector)}</td>
+          <td><span class="dot ${cls}"></span>${esc(r.status)}</td>
+          <td>${r.findings_count}</td>
+          <td>${r.started_at ? new Date(r.started_at).toLocaleString() : "—"}</td>
+          <td class="muted">${esc(r.error || "")}</td></tr>`;
+      }).join("") || `<tr><td colspan="5" class="muted">No sync runs yet.</td></tr>`;
+    }
+
+    function refresh() { loadConnectors(); loadSettings(); loadRuns(); }
+
+    async function syncOne(name, btn) {
+      const label = btn.textContent; btn.textContent = "…"; btn.disabled = true;
+      try { await api(`/api/sync/${name}`, { method: "POST" }); } finally {
+        btn.textContent = label; btn.disabled = false; refresh();
+      }
+    }
+
+    syncBtn.onclick = async () => {
+      syncBtn.textContent = "Syncing…"; syncBtn.disabled = true;
+      try { await api("/api/sync", { method: "POST" }); } finally {
+        syncBtn.textContent = "Sync all connectors"; syncBtn.disabled = false; refresh();
+      }
+    };
+    refresh();
+  </script>
+</body>
+</html>

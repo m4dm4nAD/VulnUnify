@@ -11,8 +11,12 @@ from datetime import datetime
 
 import httpx
 
-from backend.app.config import settings
-from backend.app.connectors.base import BaseConnector, NormalizedAsset, NormalizedFinding
+from backend.app.connectors.base import (
+    BaseConnector,
+    ConfigField,
+    NormalizedAsset,
+    NormalizedFinding,
+)
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus, Severity
 
 # Conformity risk levels -> normalized severity.
@@ -28,15 +32,20 @@ _RISK_MAP = {
 class TrendConnector(BaseConnector):
     name = "trend"
     category = FindingCategory.CLOUD_POSTURE
+    config_fields = [
+        ConfigField(key="trend_api_key", label="API key", secret=True),
+        ConfigField(key="trend_base_url", label="Base URL", required=False,
+                    placeholder="https://api.xdr.trendmicro.com"),
+    ]
 
     def is_configured(self) -> bool:
-        return bool(settings.trend_api_key)
+        return bool(self.config("trend_api_key"))
 
     def fetch(self) -> list[NormalizedFinding]:
         findings: list[NormalizedFinding] = []
         with httpx.Client(
-            base_url=settings.trend_base_url,
-            headers={"Authorization": f"Bearer {settings.trend_api_key}"},
+            base_url=self.config("trend_base_url"),
+            headers={"Authorization": f"Bearer {self.config('trend_api_key')}"},
             timeout=60.0,
         ) as client:
             # First page relative; subsequent pages are absolute nextLink URLs.

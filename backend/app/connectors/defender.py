@@ -15,8 +15,12 @@ from __future__ import annotations
 import json
 import subprocess
 
-from backend.app.config import settings
-from backend.app.connectors.base import BaseConnector, NormalizedAsset, NormalizedFinding
+from backend.app.connectors.base import (
+    BaseConnector,
+    ConfigField,
+    NormalizedAsset,
+    NormalizedFinding,
+)
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus
 from backend.app.normalize import severity as sev
 
@@ -53,14 +57,19 @@ _STATUS_MAP = {
 class DefenderForCloudConnector(BaseConnector):
     name = "defender_for_cloud"
     category = FindingCategory.CLOUD_POSTURE
+    config_fields = [
+        ConfigField(key="defender_subscription_id", label="Azure subscription ID"),
+        ConfigField(key="defender_pwsh_path", label="pwsh path", required=False,
+                    placeholder="pwsh"),
+    ]
 
     def is_configured(self) -> bool:
-        return bool(settings.defender_subscription_id)
+        return bool(self.config("defender_subscription_id"))
 
     def fetch(self) -> list[NormalizedFinding]:
-        script = _PWSH_SCRIPT.format(subscription_id=settings.defender_subscription_id)
+        script = _PWSH_SCRIPT.format(subscription_id=self.config("defender_subscription_id"))
         proc = subprocess.run(
-            [settings.defender_pwsh_path, "-NoProfile", "-NonInteractive", "-Command", script],
+            [self.config("defender_pwsh_path"), "-NoProfile", "-NonInteractive", "-Command", script],
             capture_output=True,
             text=True,
             timeout=300,
@@ -93,7 +102,7 @@ class DefenderForCloudConnector(BaseConnector):
                 identifier=resource_id,
                 name=resource_id.split("/")[-1] if "/" in resource_id else resource_id,
                 cloud_provider="azure",
-                metadata={"subscription_id": settings.defender_subscription_id},
+                metadata={"subscription_id": self.config("defender_subscription_id")},
             ),
             remediation=item.get("remediation"),
             location={"resource_id": resource_id},

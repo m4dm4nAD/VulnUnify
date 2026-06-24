@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://vulnunify:vulnunify@localhost:5432/vulnunify"
     log_level: str = "INFO"
 
+    # Fernet key used to encrypt connector credentials at rest. Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # If unset, a dev key is generated and persisted to .vulnunify_secret_key.
+    secret_key: str = ""
+
     # Background scheduler: run all connectors every N minutes (0 = disabled).
     sync_interval_minutes: int = 0
 

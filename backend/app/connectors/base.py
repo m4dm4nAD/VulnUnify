@@ -12,12 +12,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from backend.app.config import settings
 from backend.app.connectors.enums import (
     AssetType,
     FindingCategory,
     FindingStatus,
     Severity,
 )
+from backend.app.services import credentials as cred_store
 
 
 class NormalizedAsset(BaseModel):
@@ -81,13 +83,29 @@ class NormalizedFinding(BaseModel):
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
+class ConfigField(BaseModel):
+    """One configurable setting for a connector, used to render its config form.
+
+    `key` is both the env/.env settings attribute and the DB override key.
+    """
+    key: str
+    label: str
+    secret: bool = False        # render as a password input; never returned via API
+    required: bool = True
+    placeholder: str | None = None
+
+
 class BaseConnector(ABC):
-    """Subclass this to add a tool. Three things are required:
+    """Subclass this to add a tool. Required pieces:
 
     * `name`     — unique slug used in config, the API, and the `source` field
     * `category` — the default finding category for this tool
+    * `config_fields` — settings the UI can manage (keys also map to env/.env)
     * `is_configured()` — whether credentials are present
     * `fetch()`  — pull from the tool and return NormalizedFinding objects
+
+    Read settings via `self.config("key")` so UI-managed (DB) credentials
+    override env/.env values transparently.
     """
 
     name: str = "base"
@@ -95,6 +113,17 @@ class BaseConnector(ABC):
     # When True, findings previously seen from this source but absent in a sync
     # are auto-resolved. Set False for connectors that do partial/filtered pulls.
     supports_auto_resolve: bool = True
+    config_fields: list[ConfigField] = []
+
+    _overrides: dict[str, str] | None = None
+
+    def config(self, key: str) -> str:
+        """Resolve a setting: DB override (UI-managed) first, else env/.env."""
+        if self._overrides is None:
+            self._overrides = cred_store.load_overrides(self.name)
+        if key in self._overrides:
+            return self._overrides[key]
+        return str(getattr(settings, key, "") or "")
 
     @abstractmethod
     def is_configured(self) -> bool:

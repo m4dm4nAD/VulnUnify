@@ -11,8 +11,12 @@ from datetime import datetime, timezone
 
 import httpx
 
-from backend.app.config import settings
-from backend.app.connectors.base import BaseConnector, NormalizedAsset, NormalizedFinding
+from backend.app.connectors.base import (
+    BaseConnector,
+    ConfigField,
+    NormalizedAsset,
+    NormalizedFinding,
+)
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus, Severity
 from backend.app.normalize import severity as sev
 
@@ -33,17 +37,23 @@ _STATE_MAP = {
 class TenableConnector(BaseConnector):
     name = "tenable"
     category = FindingCategory.VULNERABILITY
+    config_fields = [
+        ConfigField(key="tenable_access_key", label="Access key", secret=True),
+        ConfigField(key="tenable_secret_key", label="Secret key", secret=True),
+        ConfigField(key="tenable_base_url", label="Base URL", required=False,
+                    placeholder="https://cloud.tenable.com"),
+    ]
 
     def is_configured(self) -> bool:
-        return bool(settings.tenable_access_key and settings.tenable_secret_key)
+        return bool(self.config("tenable_access_key") and self.config("tenable_secret_key"))
 
     def _client(self) -> httpx.Client:
         return httpx.Client(
-            base_url=settings.tenable_base_url,
+            base_url=self.config("tenable_base_url"),
             headers={
                 "X-ApiKeys": (
-                    f"accessKey={settings.tenable_access_key};"
-                    f"secretKey={settings.tenable_secret_key}"
+                    f"accessKey={self.config('tenable_access_key')};"
+                    f"secretKey={self.config('tenable_secret_key')}"
                 ),
                 "Accept": "application/json",
             },

@@ -15,8 +15,12 @@ from datetime import datetime, timezone
 
 import httpx
 
-from backend.app.config import settings
-from backend.app.connectors.base import BaseConnector, NormalizedAsset, NormalizedFinding
+from backend.app.connectors.base import (
+    BaseConnector,
+    ConfigField,
+    NormalizedAsset,
+    NormalizedFinding,
+)
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus
 from backend.app.normalize import severity as sev
 
@@ -43,15 +47,21 @@ _PER_PAGE = 100
 class AikidoConnector(BaseConnector):
     name = "aikido"
     category = FindingCategory.SAST  # default; overridden per issue in _normalize
+    config_fields = [
+        ConfigField(key="aikido_client_id", label="Client ID"),
+        ConfigField(key="aikido_client_secret", label="Client secret", secret=True),
+        ConfigField(key="aikido_base_url", label="Base URL", required=False,
+                    placeholder="https://app.aikido.dev/api"),
+    ]
 
     def is_configured(self) -> bool:
-        return bool(settings.aikido_client_id and settings.aikido_client_secret)
+        return bool(self.config("aikido_client_id") and self.config("aikido_client_secret"))
 
     def _get_token(self) -> str:
         resp = httpx.post(
-            f"{settings.aikido_base_url}/oauth/token",
+            f"{self.config('aikido_base_url')}/oauth/token",
             data={"grant_type": "client_credentials"},
-            auth=httpx.BasicAuth(settings.aikido_client_id, settings.aikido_client_secret),
+            auth=httpx.BasicAuth(self.config("aikido_client_id"), self.config("aikido_client_secret")),
             timeout=30.0,
         )
         resp.raise_for_status()
@@ -61,7 +71,7 @@ class AikidoConnector(BaseConnector):
         token = self._get_token()
         findings: list[NormalizedFinding] = []
         with httpx.Client(
-            base_url=settings.aikido_base_url,
+            base_url=self.config("aikido_base_url"),
             headers={"Authorization": f"Bearer {token}"},
             timeout=60.0,
         ) as client:

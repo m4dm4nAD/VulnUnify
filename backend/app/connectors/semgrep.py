@@ -10,8 +10,12 @@ import re
 
 import httpx
 
-from backend.app.config import settings
-from backend.app.connectors.base import BaseConnector, NormalizedAsset, NormalizedFinding
+from backend.app.connectors.base import (
+    BaseConnector,
+    ConfigField,
+    NormalizedAsset,
+    NormalizedFinding,
+)
 from backend.app.connectors.enums import AssetType, FindingCategory, FindingStatus, Severity
 from backend.app.normalize import severity as sev
 
@@ -28,18 +32,24 @@ _CWE_RE = re.compile(r"CWE-\d+", re.IGNORECASE)
 class SemgrepConnector(BaseConnector):
     name = "semgrep"
     category = FindingCategory.SAST
+    config_fields = [
+        ConfigField(key="semgrep_app_token", label="App token", secret=True),
+        ConfigField(key="semgrep_deployment_slug", label="Deployment slug"),
+        ConfigField(key="semgrep_base_url", label="Base URL", required=False,
+                    placeholder="https://semgrep.dev/api"),
+    ]
 
     def is_configured(self) -> bool:
-        return bool(settings.semgrep_app_token and settings.semgrep_deployment_slug)
+        return bool(self.config("semgrep_app_token") and self.config("semgrep_deployment_slug"))
 
     def fetch(self) -> list[NormalizedFinding]:
         findings: list[NormalizedFinding] = []
         page = 0
         page_size = 100
-        url = f"/api/v1/deployments/{settings.semgrep_deployment_slug}/findings"
+        url = f"/api/v1/deployments/{self.config('semgrep_deployment_slug')}/findings"
         with httpx.Client(
-            base_url=settings.semgrep_base_url,
-            headers={"Authorization": f"Bearer {settings.semgrep_app_token}"},
+            base_url=self.config("semgrep_base_url"),
+            headers={"Authorization": f"Bearer {self.config('semgrep_app_token')}"},
             timeout=60.0,
         ) as client:
             while True:
