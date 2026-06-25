@@ -16,7 +16,13 @@ from backend.app.models.asset import Asset
 from backend.app.models.base import utcnow
 from backend.app.models.finding import Finding
 from backend.app.models.user import User
-from backend.app.schemas.finding import FindingOut, FindingPage, StatsOut, TriageIn
+from backend.app.schemas.finding import (
+    FindingDetail,
+    FindingOut,
+    FindingPage,
+    StatsOut,
+    TriageIn,
+)
 from backend.app.schemas.user import AssignIn
 from backend.app.services.lifecycle import apply_lifecycle
 
@@ -88,10 +94,11 @@ def _load_for_actor(db: Session, finding_id: int, actor: User) -> Finding:
     return finding
 
 
-@router.get("/findings/{finding_id}", response_model=FindingOut)
+@router.get("/findings/{finding_id}", response_model=FindingDetail)
 def get_finding(
     finding_id: int, db: Session = Depends(get_db), actor: User = Depends(require_user)
 ):
+    """Full finding detail, including the original source payload (`raw`)."""
     return _load_for_actor(db, finding_id, actor)
 
 

@@ -82,6 +82,20 @@ button.mini:hover{background:#323c4d}
 .modal-actions .spacer{margin-left:auto}
 .modal-actions button[data-primary]{background:#2563eb;color:#fff;border:0}
 
+.link{color:#60a5fa;cursor:pointer}
+.link:hover{text-decoration:underline}
+.modal.detail{width:680px}
+.dpills{display:flex;gap:8px;align-items:center;margin:6px 0 14px;flex-wrap:wrap}
+.dsec{display:flex;flex-direction:column;margin-bottom:6px}
+.drow{display:flex;gap:12px;padding:5px 0;border-bottom:1px solid var(--line)}
+.dk{color:var(--muted);font-size:12px;min-width:120px}
+.dv{flex:1;word-break:break-word;font-size:13px}
+.dblock{margin:12px 0}
+.dblock .dk{display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em}
+.dtext{white-space:pre-wrap;word-break:break-word;font-size:13px}
+pre.raw{background:#0c0e13;border:1px solid var(--line);border-radius:8px;padding:12px;
+        max-height:340px;overflow:auto;font-size:12px;line-height:1.45;white-space:pre;color:#cbd5e1}
+
 body.login{display:flex;align-items:center;justify-content:center;min-height:100vh}
 .login-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
             padding:28px;width:320px}

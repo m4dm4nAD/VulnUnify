@@ -61,6 +61,16 @@
     </section>
   </main>
 
+  <div class="modal-overlay" id="fdOverlay">
+    <div class="modal detail">
+      <div id="fdBody"></div>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button class="mini" data-primary onclick="closeFinding()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // api() and esc() come from /app.js
     const SEV = ["critical", "high", "medium", "low", "info"];
@@ -161,7 +171,8 @@
         return `<tr>
           <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
           <td><span class="pill st-${f.effective_status}">${f.effective_status.replace('_',' ')}</span></td>
-          <td>${esc(f.source)}</td><td>${esc(f.title)}</td>
+          <td>${esc(f.source)}</td>
+          <td><span class="link" onclick="openFinding(${f.id})">${esc(f.title)}</span></td>
           <td class="muted">${esc(f.asset?.name || f.asset?.identifier)}</td>
           <td>${age}${sla}</td>
           <td>${assigneeCell(f)}</td>
@@ -183,6 +194,65 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: val === "" ? null : Number(val) }) });
       refresh();
+    }
+
+    // ---- finding detail modal ----
+    const drow = (k, v) => (v == null || v === "")
+      ? "" : `<div class="drow"><span class="dk">${esc(k)}</span><span class="dv">${v}</span></div>`;
+    const dt = v => v ? new Date(v).toLocaleString() : "";
+
+    async function openFinding(id) {
+      const f = await api(`/api/findings/${id}`);
+      document.getElementById("fdBody").innerHTML = renderFinding(f);
+      document.getElementById("fdOverlay").classList.add("show");
+    }
+    function closeFinding() {
+      document.getElementById("fdOverlay").classList.remove("show");
+    }
+
+    function renderFinding(f) {
+      const a = f.asset || {};
+      const cvss = f.cvss_base_score != null
+        ? f.cvss_base_score + (f.cvss_vector ? ` (${esc(f.cvss_vector)})` : "") : "";
+      const refs = (f.refs || []).map(u =>
+        `<a class="link" href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>`).join("<br>");
+      const loc = f.location && Object.keys(f.location).length ? esc(JSON.stringify(f.location)) : "";
+      const triage = f.triage_state !== "active"
+        ? esc(f.triage_state) + (f.triage_reason ? " — " + esc(f.triage_reason) : "")
+          + (f.triaged_by ? " by " + esc(f.triaged_by) : "") : "";
+      const block = (label, html) => html
+        ? `<div class="dblock"><div class="dk">${esc(label)}</div><div class="dtext">${html}</div></div>` : "";
+      return `
+        <h3>${esc(f.title)}</h3>
+        <div class="dpills">
+          <span class="pill sev-${f.severity}">${f.severity}</span>
+          <span class="pill st-${f.effective_status}">${f.effective_status.replace('_', ' ')}</span>
+          <span class="muted">${esc(f.source)} · ${esc(f.category)}</span>
+          ${f.sla_breached ? '<span class="pill sla">SLA</span>' : ''}
+        </div>
+        <div class="dsec">
+          ${drow("Asset", esc(a.name || a.identifier || "—"))}
+          ${a.name ? drow("Asset ID", esc(a.identifier)) : ""}
+          ${drow("Type", esc(a.asset_type))}
+          ${a.cloud_provider ? drow("Cloud", esc(a.cloud_provider) + (a.region ? " / " + esc(a.region) : "")) : ""}
+          ${drow("CVEs", esc((f.cve_ids || []).join(", ")))}
+          ${drow("CWEs", esc((f.cwe_ids || []).join(", ")))}
+          ${drow("CVSS", cvss)}
+          ${drow("Location", loc)}
+          ${drow("Assignee", esc(f.assigned_username || "unassigned"))}
+          ${drow("Age", f.age_days != null ? f.age_days + "d" : "")}
+          ${drow("SLA due", dt(f.sla_due_at))}
+          ${drow("First seen", dt(f.first_seen))}
+          ${drow("Last seen", dt(f.last_seen))}
+          ${drow("Resolved", dt(f.resolved_at))}
+          ${drow("Source status", esc(f.source_status))}
+          ${drow("Triage", triage)}
+        </div>
+        ${block("Description", esc(f.description))}
+        ${block("Remediation", esc(f.remediation))}
+        ${block("References", refs)}
+        <div class="dblock"><div class="dk">Raw report — ${esc(f.source)}</div>
+          <pre class="raw">${esc(JSON.stringify(f.raw, null, 2))}</pre></div>`;
     }
 
     async function triage(id, state) {

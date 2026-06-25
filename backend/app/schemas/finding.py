@@ -55,6 +55,14 @@ class FindingOut(BaseModel):
     asset: AssetOut
 
 
+class FindingDetail(FindingOut):
+    """Full single-finding view, including the original source payload."""
+    cvss_vector: str | None
+    refs: list          # reference URLs
+    tags: dict
+    raw: dict           # the unmodified record from the source tool
+
+
 class TriageIn(BaseModel):
     """Apply a local triage decision to a finding."""
     state: TriageState
