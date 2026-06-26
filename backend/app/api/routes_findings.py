@@ -29,6 +29,7 @@ from backend.app.services.lifecycle import apply_lifecycle
 router = APIRouter(prefix="/api", tags=["findings"])
 
 _SUPPRESSED = ("false_positive", "accepted_risk", "snoozed")
+_SECURITY_ROLES = ("security_admin", "security_user")
 _LOADS = (joinedload(Finding.asset), joinedload(Finding.assigned_user))
 
 # Rank used so the default sort puts critical findings first.
@@ -49,10 +50,11 @@ _SORT_COLS = {
 
 
 def _scope(actor: User):
-    """Row-level scope: devs are restricted to findings assigned to them."""
-    if actor.role == "dev":
-        return Finding.assigned_user_id == actor.id
-    return true()
+    """Row-level scope: only the security team sees everything; every other role
+    (dev, or any unknown/future role) is restricted to findings assigned to them."""
+    if actor.role in _SECURITY_ROLES:
+        return true()
+    return Finding.assigned_user_id == actor.id
 
 
 def _overdue_clause():
@@ -77,8 +79,8 @@ def list_findings(
     q: str | None = Query(None, description="substring match on title"),
     sort: str = Query("severity", description="severity|status|title|source|age"),
     order: str = Query("desc", description="asc|desc"),
-    limit: int = Query(50, le=500),
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ):
     """List findings (devs see only their assigned ones), critical-first by default."""
     stmt = select(Finding).options(*_LOADS).where(_scope(actor))
@@ -92,7 +94,7 @@ def list_findings(
         stmt = stmt.where(Finding.effective_status == effective_status)
     if triage_state:
         stmt = stmt.where(Finding.triage_state == triage_state)
-    if assigned_to is not None and actor.role != "dev":
+    if assigned_to is not None and actor.role in _SECURITY_ROLES:
         stmt = stmt.where(Finding.assigned_user_id == assigned_to)
     if overdue:
         stmt = stmt.where(_overdue_clause())

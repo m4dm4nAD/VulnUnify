@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
 from backend.app.api.deps import require_security
@@ -24,5 +24,5 @@ class ErrorOut(BaseModel):
 
 
 @router.get("", response_model=list[ErrorOut])
-def list_errors(limit: int = 100, _: User = Depends(require_security)):
+def list_errors(limit: int = Query(100, ge=1, le=500), _: User = Depends(require_security)):
     return errorlog.recent(limit)

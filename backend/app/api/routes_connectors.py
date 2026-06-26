@@ -1,7 +1,7 @@
 """Connector inventory + status."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -88,7 +88,7 @@ def list_connectors(db: Session = Depends(get_db)):
 
 
 @router.get("/runs", response_model=list[ConnectorRunOut])
-def list_runs(db: Session = Depends(get_db), limit: int = 50):
+def list_runs(db: Session = Depends(get_db), limit: int = Query(50, ge=1, le=500)):
     return db.scalars(
         select(ConnectorRun).order_by(ConnectorRun.started_at.desc()).limit(limit)
     ).all()

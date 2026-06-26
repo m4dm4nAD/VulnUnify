@@ -80,10 +80,12 @@
     // api() and esc() come from /app.js
     const SEV = ["critical", "high", "medium", "low", "info"];
     const SEV_COLOR = {critical:"#e5484d", high:"#f76808", medium:"#f5a623", low:"#3b82f6", info:"#6b7280"};
-    Chart.defaults.color = "#8b93a7";
-    Chart.defaults.borderColor = "#262b36";
-    Chart.defaults.font.family = "system-ui, sans-serif";
-    Chart.defaults.plugins.legend.labels.boxWidth = 12;
+    if (window.Chart) {   // chart.umd.min.js may fail to load; don't kill the page
+      Chart.defaults.color = "#8b93a7";
+      Chart.defaults.borderColor = "#262b36";
+      Chart.defaults.font.family = "system-ui, sans-serif";
+      Chart.defaults.plugins.legend.labels.boxWidth = 12;
+    }
     window.charts = {};
 
     function draw(id, config) {
@@ -95,10 +97,13 @@
                       plugins: { legend: { display: false } } };
 
     function loadCharts(s) {
+      if (!window.Chart) return;
+      s = s || {};
+      const bySev = s.by_severity || {}, byCat = s.by_category || {}, bySrc = s.by_source || {};
       draw("severityChart", {
         type: "doughnut",
         data: { labels: SEV.map(x => x[0].toUpperCase() + x.slice(1)),
-          datasets: [{ data: SEV.map(x => s.by_severity[x] || 0),
+          datasets: [{ data: SEV.map(x => bySev[x] || 0),
             backgroundColor: SEV.map(x => SEV_COLOR[x]), borderWidth: 0 }] },
         options: { responsive: true, maintainAspectRatio: false, cutout: "62%",
           plugins: { legend: { position: "right" } } },
@@ -112,7 +117,7 @@
           plugins: { legend: { position: "right" } } },
       });
       const breached = SEV.map(x => (s.breached_by_severity || {})[x] || 0);
-      const within = SEV.map((x, i) => (s.by_severity[x] || 0) - breached[i]);
+      const within = SEV.map((x, i) => (bySev[x] || 0) - breached[i]);
       draw("slaChart", {
         type: "bar",
         data: { labels: SEV.map(x => x[0].toUpperCase() + x.slice(1)),
@@ -125,14 +130,14 @@
           scales: { x: { stacked: true, ...noGrid }, y: { stacked: true, beginAtZero: true,
             ticks: { precision: 0 } } } },
       });
-      const cat = Object.entries(s.by_category);
+      const cat = Object.entries(byCat);
       draw("categoryChart", {
         type: "bar",
         data: { labels: cat.map(([k]) => k),
           datasets: [{ data: cat.map(([, v]) => v), backgroundColor: "#3b82f6", borderRadius: 3 }] },
         options: { ...baseBar, scales: { x: noGrid, y: { beginAtZero: true, ticks: { precision: 0 } } } },
       });
-      const src = Object.entries(s.by_source).sort((a, b) => b[1] - a[1]);
+      const src = Object.entries(bySrc).sort((a, b) => b[1] - a[1]);
       draw("sourceChart", {
         type: "bar",
         data: { labels: src.map(([k]) => k),
@@ -151,7 +156,7 @@
         ["Suppressed", s.suppressed_findings, false], ["Resolved", s.resolved_findings, false],
       ];
       document.getElementById("cards").innerHTML = cards.map(
-        ([l, n, alert]) => `<div class="card ${alert && n ? 'alert' : ''}">
+        ([l, n, isAlert]) => `<div class="card ${isAlert && n ? 'alert' : ''}">
           <div class="n">${n}</div><div class="l">${l}</div></div>`
       ).join("");
       loadCharts(s);
@@ -178,10 +183,10 @@
           `<option value="${v}" ${v === f.triage_state ? "selected" : ""}>${l}</option>`).join("");
         return `<tr>
           <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
-          <td><span class="pill st-${f.effective_status}">${f.effective_status.replace('_',' ')}</span></td>
+          <td><span class="pill st-${f.effective_status}">${(f.effective_status || "").replace('_', ' ')}</span></td>
           <td><span class="link cell-title" title="${esc(f.title)}" onclick="openFinding(${f.id})">${esc(f.title)}</span>
               <div class="f-src">${esc(f.source)}</div></td>
-          <td class="muted">${esc(f.asset?.name || f.asset?.identifier)}</td>
+          <td class="muted">${esc(f.asset?.name || f.asset?.identifier || "—")}</td>
           <td>${age}${sla}</td>
           <td>${assigneeCell(f)}</td>
           <td><select onchange="triage(${f.id}, this.value)">${opts}</select></td></tr>`;
@@ -237,8 +242,8 @@
       const a = f.asset || {};
       const cvss = f.cvss_base_score != null
         ? f.cvss_base_score + (f.cvss_vector ? ` (${esc(f.cvss_vector)})` : "") : "";
-      const refs = (f.refs || []).map(u =>
-        `<a class="link" href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>`).join("<br>");
+      const refs = (f.refs || []).map(u => /^https?:\/\//i.test(u)   // only http(s); no javascript:
+        ? `<a class="link" href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>` : esc(u)).join("<br>");
       const loc = f.location && Object.keys(f.location).length ? esc(JSON.stringify(f.location)) : "";
       const triage = f.triage_state !== "active"
         ? esc(f.triage_state) + (f.triage_reason ? " — " + esc(f.triage_reason) : "")
@@ -249,7 +254,7 @@
         <h3>${esc(f.title)}</h3>
         <div class="dpills">
           <span class="pill sev-${f.severity}">${f.severity}</span>
-          <span class="pill st-${f.effective_status}">${f.effective_status.replace('_', ' ')}</span>
+          <span class="pill st-${f.effective_status}">${(f.effective_status || "").replace('_', ' ')}</span>
           <span class="muted">${esc(f.source)} · ${esc(f.category)}</span>
           ${f.sla_breached ? '<span class="pill sla">SLA</span>' : ''}
         </div>
@@ -289,12 +294,7 @@
 
     function refresh() { loadStats(); loadFindings(); }
 
-    syncBtn.onclick = async () => {
-      syncBtn.textContent = "Syncing…"; syncBtn.disabled = true;
-      try { await api("/api/sync", { method: "POST" }); } finally {
-        syncBtn.textContent = "Sync all connectors"; syncBtn.disabled = false; refresh();
-      }
-    };
+    syncBtn.onclick = () => syncAll(syncBtn, refresh);
     [fStatus, fSeverity, fCategory].forEach(el => el.onchange = loadFindings);
     fOverdue.onchange = loadFindings;
     fQ.oninput = () => { clearTimeout(window._t); window._t = setTimeout(loadFindings, 300); };
@@ -302,6 +302,7 @@
 
     (async function init() {
       const me = await window.mePromise;
+      if (!me) return;   // auth failed; app.js handles the redirect
       window._canAssign = me.role !== "dev";
       if (window._canAssign) {
         try { window._USERS = await api("/api/users"); } catch { window._USERS = []; }

@@ -6,6 +6,8 @@ finding) don't hit the database per call.
 """
 from __future__ import annotations
 
+import threading
+
 import structlog
 from sqlalchemy import select
 
@@ -25,21 +27,23 @@ EDITABLE_KEYS = (
 )
 
 _cache: dict[str, int] | None = None
+_lock = threading.Lock()  # the scheduler thread reads while requests may update
 
 
 def _load() -> dict[str, int]:
     global _cache
-    if _cache is None:
-        values = {k: int(getattr(settings, k)) for k in EDITABLE_KEYS}  # env defaults
-        with SessionLocal() as db:
-            for row in db.scalars(select(AppSetting)):
-                if row.key in values:
-                    try:
-                        values[row.key] = int(row.value)
-                    except (TypeError, ValueError):
-                        pass
-        _cache = values
-    return _cache
+    with _lock:
+        if _cache is None:
+            values = {k: int(getattr(settings, k)) for k in EDITABLE_KEYS}  # env defaults
+            with SessionLocal() as db:
+                for row in db.scalars(select(AppSetting)):
+                    if row.key in values:
+                        try:
+                            values[row.key] = int(row.value)
+                        except (TypeError, ValueError):
+                            pass
+            _cache = values
+        return dict(_cache)  # return a copy so callers can't mutate the shared cache
 
 
 def get(key: str) -> int:
@@ -63,6 +67,7 @@ def update(values: dict[str, int]) -> dict[str, int]:
             else:
                 row.value = str(int(val))
         db.commit()
-    _cache = None
+    with _lock:
+        _cache = None
     log.info("app_settings.updated", keys=sorted(values))
     return all_settings()

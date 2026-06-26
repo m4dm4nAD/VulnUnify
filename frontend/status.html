@@ -52,7 +52,7 @@
     async function loadErrors() {
       const errs = await api("/api/errors?limit=50");
       document.getElementById("errors").innerHTML = errs.map(e => `<tr>
-        <td class="muted">${new Date(e.created_at).toLocaleString()}</td>
+        <td class="muted">${fmtDate(e.created_at)}</td>
         <td>${esc(e.source)}</td>
         <td>${esc(e.message)}</td>
         <td>${e.detail ? `<button class="mini" onclick="showDetail(${e.id})">Detail</button>` : ""}</td></tr>`).join("")

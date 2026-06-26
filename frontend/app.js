@@ -1,8 +1,8 @@
 // Shared frontend helpers: API calls (session aware), HTML escaping, the header
 // auth box, and role-based UI gating.
 
-const esc = s => (s ?? "").toString().replace(/[&<>"]/g,
-  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = s => (s ?? "").toString().replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // Transient notification. type: error (stays until dismissed) | success | info (auto-hide).
 function toast(message, type = "error") {
@@ -42,6 +42,25 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
+// Shared view helpers used across pages.
+const card = (n, l) => `<div class="card"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`;
+const fmtDate = v => v ? new Date(v).toLocaleString() : "—";
+
+// "Sync all connectors" — shared by the Overview and Connectors pages.
+async function syncAll(btn, onDone) {
+  const label = btn.textContent;
+  btn.textContent = "Syncing…"; btn.disabled = true;
+  try {
+    const runs = await api("/api/sync", { method: "POST" });
+    const errs = (runs || []).filter(r => r.status === "error");
+    if (errs.length) errs.forEach(r => toast(`${r.connector} failed: ${r.error}`, "error"));
+    else toast("Sync complete", "success");
+  } finally {
+    btn.textContent = label; btn.disabled = false; if (onDone) onDone();
+  }
+}
+window.card = card; window.fmtDate = fmtDate; window.syncAll = syncAll;
+
 // Single source of truth for the top nav (rendered into <nav id="mainnav">).
 const NAV = [
   { href: "/", label: "Overview" },
@@ -78,6 +97,7 @@ function applyRoleVisibility(me) {
 // Guard a whole page: redirect non-permitted users to the overview.
 window.requireRole = async (level) => {
   const me = await window.mePromise;
+  if (!me) { location.href = "/login.html"; return new Promise(() => {}); }  // auth failed
   const ok = level === "admin" ? me.role === "security_admin"
     : level === "security" ? me.role !== "dev"
       : true;
@@ -88,7 +108,9 @@ window.requireRole = async (level) => {
 async function initAuthHeader() {
   renderNav();  // structure first, so applyRoleVisibility can reveal allowed links
   let me;
-  try { me = await api("/api/auth/me"); } catch { return; }  // api() handled the redirect
+  // On 401, api() already redirected. On any other failure, resolve null so
+  // gated pages react (and don't hang forever awaiting mePromise).
+  try { me = await api("/api/auth/me"); } catch { _meResolve(null); return; }
   window.ME = me;
   _meResolve(me);
   applyRoleVisibility(me);

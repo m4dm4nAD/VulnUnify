@@ -35,7 +35,7 @@ class Finding(Base, TimestampMixin):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Triage: a local human decision that survives connector re-syncs.
-    triage_state: Mapped[str] = mapped_column(String(32), default="active")
+    triage_state: Mapped[str] = mapped_column(String(32), default="active", index=True)
     triage_reason: Mapped[str | None] = mapped_column(Text)
     triage_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     triaged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

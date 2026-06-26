@@ -1,6 +1,8 @@
 """Watched-package inventory: import manifests, list, delete. Security team only."""
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.app.api.deps import require_security
@@ -18,6 +20,8 @@ def import_packages(body: PackageImportIn, _: User = Depends(require_security)):
         return packages.import_manifest(body.filename, body.content, body.source)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, f"invalid manifest JSON: {exc}")
 
 
 @router.get("", response_model=list[WatchedPackageOut])

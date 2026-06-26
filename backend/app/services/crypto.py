@@ -19,17 +19,28 @@ _KEY_FILE = ".vulnunify_secret_key"
 _fernet: Fernet | None = None
 
 
+def _read_key(path: str) -> bytes:
+    with open(path, "rb") as fh:
+        return fh.read().strip()
+
+
 def _load_key() -> bytes:
     if settings.secret_key:
         return settings.secret_key.encode()
-    if os.path.exists(_KEY_FILE):
-        return open(_KEY_FILE, "rb").read().strip()
+    path = os.path.abspath(_KEY_FILE)
+    if os.path.exists(path):
+        return _read_key(path)
     key = Fernet.generate_key()
-    with open(_KEY_FILE, "wb") as fh:
-        fh.write(key)
-    log.warning("crypto.dev_key_generated", file=_KEY_FILE,
-                hint="set SECRET_KEY for production")
-    return key
+    try:
+        # Atomic create with owner-only perms; if another process wins the race,
+        # read theirs so we never end up with two different keys.
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(key)
+        log.warning("crypto.dev_key_generated", file=path, hint="set SECRET_KEY for production")
+        return key
+    except FileExistsError:
+        return _read_key(path)
 
 
 def _cipher() -> Fernet:

@@ -21,11 +21,12 @@ from backend.app.services.lifecycle import apply_lifecycle, resolve_missing
 log = structlog.get_logger()
 
 
-def _upsert_asset(db: Session, na: NormalizedAsset) -> Asset:
-    asset = db.scalar(select(Asset).where(Asset.identifier == na.identifier))
+def _upsert_asset(db: Session, na: NormalizedAsset, cache: dict[str, Asset]) -> Asset:
+    asset = cache.get(na.identifier)
     if asset is None:
         asset = Asset(identifier=na.identifier, first_seen=utcnow())
         db.add(asset)
+        cache[na.identifier] = asset
     asset.asset_type = na.asset_type.value
     asset.name = na.name or asset.name
     asset.cloud_provider = na.cloud_provider or asset.cloud_provider
@@ -33,18 +34,20 @@ def _upsert_asset(db: Session, na: NormalizedAsset) -> Asset:
     if na.metadata:
         asset.asset_metadata = {**(asset.asset_metadata or {}), **na.metadata}
     asset.last_seen = utcnow()
-    db.flush()
     return asset
 
 
-def _upsert_finding(db: Session, nf: NormalizedFinding, asset: Asset) -> bool:
+def _upsert_finding(
+    db: Session, nf: NormalizedFinding, asset: Asset, cache: dict[str, Finding]
+) -> bool:
     """Returns True if a new finding was created, False if an existing one updated."""
     fp = nf.fingerprint()
-    finding = db.scalar(select(Finding).where(Finding.fingerprint == fp))
+    finding = cache.get(fp)
     created = finding is None
     if finding is None:
         finding = Finding(fingerprint=fp, first_seen=nf.first_seen or utcnow())
         db.add(finding)
+        cache[fp] = finding
 
     finding.source = nf.source
     finding.source_finding_id = nf.source_finding_id
@@ -80,10 +83,25 @@ def _upsert_finding(db: Session, nf: NormalizedFinding, asset: Asset) -> bool:
 
 
 def ingest_findings(db: Session, findings: list[NormalizedFinding]) -> dict[str, int]:
+    if not findings:
+        return {"created": 0, "updated": 0, "total": 0}
+
+    # Batch-load existing assets + findings up front (2 queries instead of ~2N).
+    identifiers = {nf.asset.identifier for nf in findings}
+    fingerprints = {nf.fingerprint() for nf in findings}
+    asset_cache = {
+        a.identifier: a
+        for a in db.scalars(select(Asset).where(Asset.identifier.in_(identifiers)))
+    }
+    finding_cache = {
+        f.fingerprint: f
+        for f in db.scalars(select(Finding).where(Finding.fingerprint.in_(fingerprints)))
+    }
+
     created = updated = 0
     for nf in findings:
-        asset = _upsert_asset(db, nf.asset)
-        if _upsert_finding(db, nf, asset):
+        asset = _upsert_asset(db, nf.asset, asset_cache)
+        if _upsert_finding(db, nf, asset, finding_cache):
             created += 1
         else:
             updated += 1

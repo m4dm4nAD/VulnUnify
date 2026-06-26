@@ -68,7 +68,6 @@ class TriageIn(BaseModel):
     state: TriageState
     reason: str | None = None
     until: datetime | None = None   # used when state == snoozed
-    by: str | None = None
 
 
 class FindingPage(BaseModel):

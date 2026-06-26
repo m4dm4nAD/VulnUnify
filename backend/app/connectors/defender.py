@@ -68,8 +68,9 @@ class DefenderForCloudConnector(BaseConnector):
 
     def fetch(self) -> list[NormalizedFinding]:
         script = _PWSH_SCRIPT.format(subscription_id=self.config("defender_subscription_id"))
+        pwsh = self.config("defender_pwsh_path") or "pwsh"
         proc = subprocess.run(
-            [self.config("defender_pwsh_path"), "-NoProfile", "-NonInteractive", "-Command", script],
+            [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
             capture_output=True,
             text=True,
             timeout=300,

@@ -39,12 +39,13 @@ _CONNECTOR_CLASSES: list[type[BaseConnector]] = [
 ]
 
 
+_BY_NAME: dict[str, type[BaseConnector]] = {cls.name: cls for cls in _CONNECTOR_CLASSES}
+
+
 def all_connectors() -> list[BaseConnector]:
     return [cls() for cls in _CONNECTOR_CLASSES]
 
 
 def get_connector(name: str) -> BaseConnector | None:
-    for c in all_connectors():
-        if c.name == name:
-            return c
-    return None
+    cls = _BY_NAME.get(name)
+    return cls() if cls else None

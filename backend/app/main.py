@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import logging
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.api import (
@@ -26,6 +28,7 @@ from backend.app.api.deps import require_security, require_user
 from backend.app.config import settings
 from backend.app.db import SessionLocal
 from backend.app.scheduler import shutdown_scheduler, start_scheduler
+from backend.app.services import errorlog
 from backend.app.services.auth import seed_initial_admin
 
 logging.basicConfig(level=settings.log_level)
@@ -57,6 +60,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_MAX_BODY_BYTES = 32 * 1024 * 1024  # 32 MB cap on uploads (manifests/scan reports)
+
+
+@app.middleware("http")
+async def _limit_body_size(request: Request, call_next):
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > _MAX_BODY_BYTES:
+        return JSONResponse(status_code=413, content={"detail": "request body too large"})
+    return await call_next(request)
+
 # Auth router is open. Findings + users do per-route role checks internally;
 # the rest are security-team only (devs are 403'd at the router boundary).
 app.include_router(routes_auth.router)
@@ -75,14 +88,8 @@ app.include_router(routes_errors.router, dependencies=_security)
 
 
 @app.exception_handler(Exception)
-async def _on_unhandled(request, exc):
+async def _on_unhandled(request: Request, exc: Exception):
     """Persist unexpected (500) errors and return a generic detail to the client."""
-    import traceback
-
-    from fastapi.responses import JSONResponse
-
-    from backend.app.services import errorlog
-
     errorlog.record(f"api:{request.url.path}", f"{type(exc).__name__}: {exc}",
                     traceback.format_exc())
     return JSONResponse(status_code=500, content={"detail": "internal server error"})

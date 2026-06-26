@@ -87,8 +87,13 @@ class TenableConnector(BaseConnector):
             resp = client.get(f"/vulns/export/{export_uuid}/status")
             resp.raise_for_status()
             data = resp.json()
-            if data.get("status") in {"FINISHED", "ERROR"}:
+            status = data.get("status")
+            if status == "FINISHED":
                 return data.get("chunks_available", [])
+            if status in {"ERROR", "CANCELLED"}:
+                # Don't treat a failed export as an empty (successful) result —
+                # that would auto-resolve every Tenable finding.
+                raise RuntimeError(f"Tenable export {export_uuid} ended with status {status}")
             time.sleep(3)
         raise TimeoutError(f"Tenable export {export_uuid} did not finish in {max_wait_s}s")
 
