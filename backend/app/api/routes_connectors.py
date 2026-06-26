@@ -81,6 +81,7 @@ def list_connectors(db: Session = Depends(get_db)):
                 last_run_at=last.started_at if last else None,
                 last_status=last.status if last else None,
                 last_findings_count=last.findings_count if last else None,
+                last_error=last.error if last else None,
             )
         )
     return out

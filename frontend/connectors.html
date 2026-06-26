@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VulnUnify — Connectors</title>
+  <title>VulnUnify — Connectors &amp; Settings</title>
   <link rel="stylesheet" href="/app.css" />
   <script src="/app.js"></script>
 </head>
@@ -24,6 +24,16 @@
         Connectors are configured via environment variables in <code>.env</code> or, for
         security admins, the Configure dialog. Unconfigured connectors are skipped during sync.</p>
     </section>
+
+    <section>
+      <h2>Sync schedule</h2>
+      <div id="scheduler"></div>
+    </section>
+
+    <section>
+      <h2>SLA policy <span class="muted" style="text-transform:none">— days from first seen, by severity</span></h2>
+      <div id="sla"></div>
+    </section>
   </main>
 
   <div class="modal-overlay" id="cfgOverlay">
@@ -43,6 +53,8 @@
 
   <script>
     // api() and esc() come from /app.js
+    const card = (n, l) => `<div class="card"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`;
+    const isAdmin = () => window.ME?.role === "security_admin";
 
     async function loadConnectors() {
       const cs = await api("/api/connectors");
@@ -52,23 +64,79 @@
         return `<tr><td>${esc(c.name)}</td><td>${esc(c.category)}</td>
           <td>${c.configured ? "yes" : "<span class='muted'>no</span>"}</td>
           <td>${c.last_run_at ? new Date(c.last_run_at).toLocaleString() : "—"}</td>
-          <td><span class="dot ${cls}"></span>${esc(c.last_status || "never run")}</td>
+          <td title="${esc(c.last_error || '')}"><span class="dot ${cls}"></span>${esc(c.last_status || "never run")}</td>
           <td>${c.last_findings_count ?? "—"}</td>
           <td><div class="row-actions">
-            ${window.ME?.role === "security_admin"
-              ? `<button class="mini" onclick="openConfig('${esc(c.name)}')">Configure</button>` : ""}
+            ${isAdmin() ? `<button class="mini" onclick="openConfig('${esc(c.name)}')">Configure</button>` : ""}
             <button class="mini" onclick="syncOne('${esc(c.name)}', this)">Sync</button>
           </div></td></tr>`;
       }).join("");
     }
 
+    // ---- settings (scheduler + SLA) ----
+    async function loadSettings() {
+      const s = await api("/api/settings");
+      const sc = s.scheduler || {}, sla = s.sla_days || {};
+      const sched = document.getElementById("scheduler");
+      if (isAdmin()) {
+        sched.innerHTML = `
+          <div class="filters">
+            <label class="muted" style="font-size:13px">Run every
+              <input id="schInterval" type="number" min="0" value="${sc.interval_minutes}" style="width:80px"> min</label>
+            <span class="muted" style="font-size:12px">(0 disables)</span>
+            <button class="mini" data-primary onclick="saveSchedule()">Save</button>
+            <span id="schMsg" class="muted"></span>
+          </div>
+          <div class="kv" style="margin-top:8px">
+            ${card(sc.running ? "Yes" : "No", "Running")}
+            ${card(sc.next_run_at ? new Date(sc.next_run_at).toLocaleString() : "—", "Next run")}</div>`;
+      } else {
+        sched.innerHTML = `<div class="kv">
+          ${card(sc.enabled ? "Enabled" : "Disabled", "Scheduler")}
+          ${card(sc.interval_minutes + " min", "Interval")}
+          ${card(sc.running ? "Yes" : "No", "Running")}
+          ${card(sc.next_run_at ? new Date(sc.next_run_at).toLocaleString() : "—", "Next run")}</div>`;
+      }
+
+      const slaEl = document.getElementById("sla");
+      const sevs = ["critical", "high", "medium", "low"];
+      if (isAdmin()) {
+        slaEl.innerHTML = `<div class="filters">
+          ${sevs.map(k => `<label class="muted" style="font-size:13px;text-transform:capitalize">${k}
+            <input id="sla_${k}" type="number" min="0" value="${sla[k] ?? 0}" style="width:70px"> d</label>`).join("")}
+          <button class="mini" data-primary onclick="saveSla()">Save</button>
+          <span id="slaMsg" class="muted"></span></div>`;
+      } else {
+        slaEl.innerHTML = `<div class="kv">${sevs.map(k => card((sla[k] ?? "—") + "d", k)).join("")}</div>`;
+      }
+    }
+
+    async function saveSchedule() {
+      const v = parseInt(document.getElementById("schInterval").value, 10);
+      document.getElementById("schMsg").textContent = "Saving…";
+      await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sync_interval_minutes: isNaN(v) ? 0 : v }) });
+      loadSettings();
+    }
+    async function saveSla() {
+      const body = {};
+      ["critical", "high", "medium", "low"].forEach(k => {
+        const v = parseInt(document.getElementById("sla_" + k).value, 10);
+        body["sla_" + k + "_days"] = isNaN(v) ? 0 : v;
+      });
+      document.getElementById("slaMsg").textContent = "Saving… (recomputing SLAs)";
+      await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body) });
+      loadSettings();
+    }
+
+    // ---- connector configure modal ----
     let cfgState = null;
     async function openConfig(name) {
       cfgState = await api(`/api/connectors/${name}/config`);
       document.getElementById("cfgTitle").textContent = "Configure " + name;
       document.getElementById("cfgFields").innerHTML = cfgState.fields.map((f, i) => {
-        const ph = f.secret ? (f.is_set ? f.display : (f.placeholder || ""))
-                            : (f.placeholder || "");
+        const ph = f.secret ? (f.is_set ? f.display : (f.placeholder || "")) : (f.placeholder || "");
         const val = f.secret ? "" : esc(f.value);
         return `<div class="field">
           <label>${esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}
@@ -78,16 +146,12 @@
       }).join("");
       document.getElementById("cfgOverlay").classList.add("show");
     }
-    function closeConfig() {
-      document.getElementById("cfgOverlay").classList.remove("show");
-      cfgState = null;
-    }
+    function closeConfig() { document.getElementById("cfgOverlay").classList.remove("show"); cfgState = null; }
     async function saveConfig() {
       const values = {};
       cfgState.fields.forEach((f, i) => {
         const cur = document.getElementById("cfg_" + i).value;
-        const initial = f.secret ? "" : f.value;
-        if (cur !== initial) values[f.key] = cur;
+        if (cur !== (f.secret ? "" : f.value)) values[f.key] = cur;
       });
       const btn = document.getElementById("cfgSave"); btn.disabled = true; btn.textContent = "Saving…";
       try {
@@ -104,18 +168,24 @@
 
     async function syncOne(name, btn) {
       const label = btn.textContent; btn.textContent = "…"; btn.disabled = true;
-      try { await api(`/api/sync/${name}`, { method: "POST" }); } finally {
-        btn.textContent = label; btn.disabled = false; loadConnectors();
-      }
+      try {
+        const run = await api(`/api/sync/${name}`, { method: "POST" });
+        if (run.status === "error") toast(`${name} sync failed: ${run.error}`, "error");
+        else if (run.status === "skipped") toast(`${name} skipped: ${run.error || "not configured"}`, "info");
+        else toast(`${name}: synced ${run.findings_count} findings`, "success");
+      } finally { btn.textContent = label; btn.disabled = false; loadConnectors(); }
     }
 
     syncBtn.onclick = async () => {
       syncBtn.textContent = "Syncing…"; syncBtn.disabled = true;
-      try { await api("/api/sync", { method: "POST" }); } finally {
-        syncBtn.textContent = "Sync all connectors"; syncBtn.disabled = false; loadConnectors();
-      }
+      try {
+        const runs = await api("/api/sync", { method: "POST" });
+        const errs = (runs || []).filter(r => r.status === "error");
+        if (errs.length) errs.forEach(r => toast(`${r.connector} failed: ${r.error}`, "error"));
+        else toast("Sync complete", "success");
+      } finally { syncBtn.textContent = "Sync all connectors"; syncBtn.disabled = false; loadConnectors(); }
     };
-    requireRole("security").then(loadConnectors);
+    requireRole("security").then(() => { loadConnectors(); loadSettings(); });
   </script>
 </body>
 </html>

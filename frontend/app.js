@@ -4,6 +4,24 @@
 const esc = s => (s ?? "").toString().replace(/[&<>"]/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+// Transient notification. type: error (stays until dismissed) | success | info (auto-hide).
+function toast(message, type = "error") {
+  let box = document.getElementById("toasts");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "toasts"; box.className = "toasts";
+    document.body.appendChild(box);
+  }
+  const t = document.createElement("div");
+  t.className = "toast " + type;
+  t.innerHTML = `<span></span><button class="tx" title="dismiss">×</button>`;
+  t.querySelector("span").textContent = message;        // textContent = safe, no escaping
+  t.querySelector(".tx").onclick = () => t.remove();
+  box.appendChild(t);
+  if (type !== "error") setTimeout(() => t.remove(), 4500);
+}
+window.toast = toast;
+
 async function api(path, opts = {}) {
   const res = await fetch(path, { credentials: "same-origin", ...opts });
   if (res.status === 401) {
@@ -12,15 +30,24 @@ async function api(path, opts = {}) {
     }
     throw new Error("unauthorized");
   }
+  if (!res.ok) {
+    let detail;
+    try {
+      const body = await res.json();
+      detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body);
+    } catch { detail = res.statusText; }
+    toast(`${(opts.method || "GET").toUpperCase()} ${path} failed (${res.status}): ${detail}`);
+    throw new Error(detail);
+  }
   return res.json();
 }
 
 // Single source of truth for the top nav (rendered into <nav id="mainnav">).
 const NAV = [
   { href: "/", label: "Overview" },
-  { href: "/connectors.html", label: "Connectors", gate: "security" },
+  { href: "/connectors.html", label: "Connectors & Settings", gate: "security" },
   { href: "/packages.html", label: "Packages", gate: "security" },
-  { href: "/settings.html", label: "Settings", gate: "security" },
+  { href: "/containers.html", label: "Containers", gate: "security" },
   { href: "/status.html", label: "Status", gate: "security" },
   { href: "/users.html", label: "Users", gate: "admin" },
 ];

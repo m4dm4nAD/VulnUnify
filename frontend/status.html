@@ -16,6 +16,12 @@
   </header>
   <main>
     <section>
+      <h2>Recent errors</h2>
+      <table><thead><tr><th>Time</th><th>Source</th><th>Message</th><th></th></tr></thead>
+        <tbody id="errors"></tbody></table>
+    </section>
+
+    <section>
       <h2>Recent sync runs</h2>
       <table><thead><tr><th>Connector</th><th>Status</th><th>Findings</th>
         <th>Started</th><th>Duration</th><th>Error</th></tr></thead>
@@ -43,8 +49,24 @@
       }).join("") || `<tr><td colspan="6" class="muted">No sync runs yet.</td></tr>`;
     }
 
-    refreshBtn.onclick = loadRuns;
-    requireRole("security").then(loadRuns);
+    async function loadErrors() {
+      const errs = await api("/api/errors?limit=50");
+      document.getElementById("errors").innerHTML = errs.map(e => `<tr>
+        <td class="muted">${new Date(e.created_at).toLocaleString()}</td>
+        <td>${esc(e.source)}</td>
+        <td>${esc(e.message)}</td>
+        <td>${e.detail ? `<button class="mini" onclick="showDetail(${e.id})">Detail</button>` : ""}</td></tr>`).join("")
+        || `<tr><td colspan="4" class="muted">No errors recorded. 🎉</td></tr>`;
+      window._errs = errs;
+    }
+    function showDetail(id) {
+      const e = (window._errs || []).find(x => x.id === id);
+      if (e) alert(`${e.source}\n\n${e.message}\n\n${e.detail || ""}`);
+    }
+
+    function refresh() { loadRuns(); loadErrors(); }
+    refreshBtn.onclick = refresh;
+    requireRole("security").then(refresh);
   </script>
 </body>
 </html>

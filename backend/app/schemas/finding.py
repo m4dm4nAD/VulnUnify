@@ -85,6 +85,7 @@ class ConnectorStatus(BaseModel):
     last_run_at: datetime | None = None
     last_status: str | None = None
     last_findings_count: int | None = None
+    last_error: str | None = None
 
 
 class ConfigFieldOut(BaseModel):

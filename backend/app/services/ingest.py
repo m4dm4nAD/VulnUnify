@@ -115,10 +115,15 @@ def sync_connector(db: Session, connector: BaseConnector) -> ConnectorRun:
         run.status = "success"
         log.info("connector.synced", connector=connector.name, **result)
     except Exception as exc:  # noqa: BLE001 — record any connector failure, keep others running
+        import traceback
+
+        from backend.app.services import errorlog
+
         db.rollback()
         run = db.merge(run)
         run.status = "error"
         run.error = f"{type(exc).__name__}: {exc}"
+        errorlog.record(f"connector:{connector.name}", run.error, traceback.format_exc())
         log.error("connector.error", connector=connector.name, error=str(exc))
     finally:
         run.finished_at = utcnow()

@@ -74,5 +74,10 @@ class Settings(BaseSettings):
     semgrep_deployment_slug: str = ""
     semgrep_base_url: str = "https://semgrep.dev/api"
 
+    # --- Snyk (container image scanning) ---
+    snyk_token: str = ""
+    snyk_org_id: str = ""
+    snyk_base_url: str = "https://api.snyk.io"
+
 
 settings = Settings()

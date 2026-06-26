@@ -13,6 +13,7 @@ from backend.app.connectors.defender import DefenderForCloudConnector
 from backend.app.connectors.osv import OsvConnector
 from backend.app.connectors.rapid7 import Rapid7Connector
 from backend.app.connectors.semgrep import SemgrepConnector
+from backend.app.connectors.snyk import SnykConnector
 from backend.app.connectors.sonarqube import SonarQubeConnector
 from backend.app.connectors.tenable import TenableConnector
 from backend.app.connectors.trend import TrendConnector
@@ -33,6 +34,8 @@ _CONNECTOR_CLASSES: list[type[BaseConnector]] = [
     AikidoConnector,
     # Supply chain (package observation; no credentials)
     OsvConnector,
+    # Container image scanning
+    SnykConnector,
 ]
 
 

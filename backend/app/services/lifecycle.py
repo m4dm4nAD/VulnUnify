@@ -14,10 +14,10 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.config import settings
 from backend.app.connectors.enums import EffectiveStatus, TriageState
 from backend.app.models.base import utcnow
 from backend.app.models.finding import Finding
+from backend.app.services import app_settings
 
 log = structlog.get_logger()
 
@@ -25,10 +25,10 @@ log = structlog.get_logger()
 def sla_days_for(severity: str) -> int | None:
     """SLA window in days for a severity, or None if the severity has no SLA."""
     return {
-        "critical": settings.sla_critical_days,
-        "high": settings.sla_high_days,
-        "medium": settings.sla_medium_days,
-        "low": settings.sla_low_days,
+        "critical": app_settings.get("sla_critical_days"),
+        "high": app_settings.get("sla_high_days"),
+        "medium": app_settings.get("sla_medium_days"),
+        "low": app_settings.get("sla_low_days"),
         "info": None,
     }.get(severity)
 

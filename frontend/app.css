@@ -102,6 +102,18 @@ button.mini:hover{background:#323c4d}
 pre.raw{background:#0c0e13;border:1px solid var(--line);border-radius:8px;padding:12px;
         max-height:340px;overflow:auto;font-size:12px;line-height:1.45;white-space:pre;color:#cbd5e1}
 
+.toasts{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;
+        z-index:200;max-width:440px}
+.toast{display:flex;gap:10px;align-items:flex-start;background:var(--panel);
+       border:1px solid var(--line);border-left:3px solid var(--crit);border-radius:8px;
+       padding:10px 12px;box-shadow:0 6px 24px rgba(0,0,0,.45);font-size:13px}
+.toast.success{border-left-color:var(--green)}
+.toast.info{border-left-color:var(--low)}
+.toast span{flex:1;word-break:break-word;line-height:1.4}
+.toast .tx{background:none;border:0;color:var(--muted);cursor:pointer;font-size:16px;
+           line-height:1;padding:0 2px}
+.toast .tx:hover{color:var(--txt)}
+
 body.login{display:flex;align-items:center;justify-content:center;min-height:100vh}
 .login-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
             padding:28px;width:320px}

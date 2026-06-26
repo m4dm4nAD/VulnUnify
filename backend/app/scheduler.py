@@ -10,8 +10,8 @@ from __future__ import annotations
 import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from backend.app.config import settings
 from backend.app.db import SessionLocal
+from backend.app.services import app_settings
 from backend.app.services.ingest import sync_all
 from backend.app.services.lifecycle import recompute_all
 
@@ -36,10 +36,12 @@ def run_scheduled_sync() -> None:
         db.close()
 
 
-def start_scheduler() -> None:
-    interval = settings.sync_interval_minutes
+def _set_job(interval: int) -> None:
     if interval <= 0:
-        log.info("scheduler.disabled")
+        try:
+            scheduler.remove_job(_JOB_ID)
+        except Exception:  # noqa: BLE001 — job may not exist
+            pass
         return
     scheduler.add_job(
         run_scheduled_sync,
@@ -50,8 +52,22 @@ def start_scheduler() -> None:
         coalesce=True,        # collapse missed ticks into one
         replace_existing=True,
     )
-    scheduler.start()
+
+
+def start_scheduler() -> None:
+    interval = app_settings.get("sync_interval_minutes")
+    _set_job(interval)
+    if not scheduler.running:
+        scheduler.start()  # started even if interval=0, so it can be enabled live
     log.info("scheduler.started", interval_minutes=interval)
+
+
+def reschedule(interval: int) -> None:
+    """Apply a new interval at runtime (0 disables the periodic sync)."""
+    _set_job(interval)
+    if not scheduler.running:
+        scheduler.start()
+    log.info("scheduler.rescheduled", interval_minutes=interval)
 
 
 def shutdown_scheduler() -> None:
@@ -60,10 +76,11 @@ def shutdown_scheduler() -> None:
 
 
 def schedule_status() -> dict:
+    interval = app_settings.get("sync_interval_minutes")
     job = scheduler.get_job(_JOB_ID) if scheduler.running else None
     return {
-        "enabled": settings.sync_interval_minutes > 0,
-        "interval_minutes": settings.sync_interval_minutes,
+        "enabled": interval > 0,
+        "interval_minutes": interval,
         "running": scheduler.running,
         "next_run_at": job.next_run_time.isoformat() if job and job.next_run_time else None,
     }

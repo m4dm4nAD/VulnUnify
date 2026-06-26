@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Containers</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>🛡️ VulnUnify</h1>
+    <nav id="mainnav"></nav>
+    <span id="authBox" class="authbox"></span>
+  </header>
+  <main>
+    <section>
+      <h2>Container image scanning</h2>
+      <p class="muted">Two ways to bring in image vulnerabilities, both landing as
+        <code>container</code> findings on the Overview:</p>
+      <ul class="muted" style="margin-top:4px">
+        <li><b>API</b> — configure the <b>Snyk</b> connector (Connectors page) to pull on a schedule.</li>
+        <li><b>Manual</b> — upload a scan report below, e.g.
+          <code>snyk container test --json python:3.10-slim &gt; report.json</code>.</li>
+      </ul>
+      <div class="filters" style="margin-top:10px">
+        <select id="tool">
+          <option value="snyk">Snyk (snyk container test --json)</option>
+          <option value="prisma">Prisma (twistcli images scan)</option>
+          <option value="wiz">Wiz (vulnerability findings export)</option>
+        </select>
+        <input type="file" id="report" accept=".json" />
+        <button class="mini" data-primary onclick="importReport()">Upload report</button>
+        <span id="msg" class="muted"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Scanned images <span class="muted" id="imgCount"></span></h2>
+      <table><thead><tr><th>Image</th><th>Open findings</th><th>Critical</th></tr></thead>
+        <tbody id="images"></tbody></table>
+    </section>
+  </main>
+
+  <script>
+    async function load() {
+      const imgs = await api("/api/containers/images");
+      document.getElementById("imgCount").textContent = imgs.length ? `— ${imgs.length}` : "";
+      document.getElementById("images").innerHTML = imgs.map(i => `<tr>
+        <td>${esc(i.image)}</td><td>${i.open}</td>
+        <td>${i.critical ? `<span class="pill sev-critical">${i.critical}</span>` : "0"}</td></tr>`).join("")
+        || `<tr><td colspan="3" class="muted">No container scans yet — upload a report or sync the Snyk connector.</td></tr>`;
+    }
+
+    async function importReport() {
+      const msg = document.getElementById("msg"); msg.textContent = "";
+      const f = document.getElementById("report").files[0];
+      if (!f) { msg.textContent = "choose a report file first"; return; }
+      const body = { tool: document.getElementById("tool").value, content: await f.text() };
+      const res = await fetch("/api/containers/import", { method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) {
+        msg.textContent = `Imported ${j.findings} findings from ${j.images.length} image(s)`
+          + (j.resolved ? `, resolved ${j.resolved} fixed` : "") + ".";
+        load();
+      } else { msg.textContent = j.detail || "import failed"; }
+    }
+
+    requireRole("security").then(load);
+  </script>
+</body>
+</html>

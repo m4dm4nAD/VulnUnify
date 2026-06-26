@@ -13,6 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from backend.app.api import (
     routes_auth,
     routes_connectors,
+    routes_containers,
+    routes_errors,
     routes_findings,
     routes_lifecycle,
     routes_packages,
@@ -68,6 +70,22 @@ app.include_router(routes_sync.router, dependencies=_security)
 app.include_router(routes_lifecycle.router, dependencies=_security)
 app.include_router(routes_settings.router, dependencies=_security)
 app.include_router(routes_packages.router, dependencies=_security)
+app.include_router(routes_containers.router, dependencies=_security)
+app.include_router(routes_errors.router, dependencies=_security)
+
+
+@app.exception_handler(Exception)
+async def _on_unhandled(request, exc):
+    """Persist unexpected (500) errors and return a generic detail to the client."""
+    import traceback
+
+    from fastapi.responses import JSONResponse
+
+    from backend.app.services import errorlog
+
+    errorlog.record(f"api:{request.url.path}", f"{type(exc).__name__}: {exc}",
+                    traceback.format_exc())
+    return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
 
 @app.get("/health", tags=["meta"])
