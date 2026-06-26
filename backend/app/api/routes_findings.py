@@ -7,7 +7,7 @@ cannot read or act on a finding outside their queue.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, select, true
+from sqlalchemy import and_, case, func, select, true
 from sqlalchemy.orm import Session, joinedload
 
 from backend.app.api.deps import require_security, require_user
@@ -30,6 +30,22 @@ router = APIRouter(prefix="/api", tags=["findings"])
 
 _SUPPRESSED = ("false_positive", "accepted_risk", "snoozed")
 _LOADS = (joinedload(Finding.asset), joinedload(Finding.assigned_user))
+
+# Rank used so the default sort puts critical findings first.
+_SEV_RANK = case(
+    (Finding.severity == "critical", 4),
+    (Finding.severity == "high", 3),
+    (Finding.severity == "medium", 2),
+    (Finding.severity == "low", 1),
+    else_=0,
+)
+_SORT_COLS = {
+    "severity": _SEV_RANK,
+    "status": Finding.effective_status,
+    "title": Finding.title,
+    "source": Finding.source,
+    "age": Finding.first_seen,  # older first_seen == higher age
+}
 
 
 def _scope(actor: User):
@@ -59,10 +75,12 @@ def list_findings(
     assigned_to: int | None = Query(None, description="filter by assignee (security only)"),
     overdue: bool | None = Query(None, description="only SLA-breached open findings"),
     q: str | None = Query(None, description="substring match on title"),
+    sort: str = Query("severity", description="severity|status|title|source|age"),
+    order: str = Query("desc", description="asc|desc"),
     limit: int = Query(50, le=500),
     offset: int = 0,
 ):
-    """List findings (devs see only their assigned ones)."""
+    """List findings (devs see only their assigned ones), critical-first by default."""
     stmt = select(Finding).options(*_LOADS).where(_scope(actor))
     if source:
         stmt = stmt.where(Finding.source == source)
@@ -82,7 +100,13 @@ def list_findings(
         stmt = stmt.where(Finding.title.ilike(f"%{q}%"))
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = db.scalars(stmt.order_by(Finding.id.desc()).limit(limit).offset(offset)).all()
+
+    col = _SORT_COLS.get(sort, _SEV_RANK)
+    descending = order != "asc"
+    if sort == "age":
+        descending = not descending  # "age desc" means oldest (earliest first_seen) first
+    stmt = stmt.order_by(col.desc() if descending else col.asc(), Finding.id.desc())
+    rows = db.scalars(stmt.limit(limit).offset(offset)).all()
     return FindingPage(total=total or 0, limit=limit, offset=offset, items=rows)
 
 

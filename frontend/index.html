@@ -55,8 +55,13 @@
         <label><input type="checkbox" id="fOverdue" /> SLA breached only</label>
         <input id="fQ" placeholder="search title…" />
       </div>
-      <table><thead><tr><th>Severity</th><th>Status</th><th>Source</th><th>Title</th>
-        <th>Asset</th><th>Age</th><th>Assignee</th><th>Triage</th></tr></thead>
+      <table><thead><tr>
+        <th class="sortable" data-sort="severity">Severity<span class="arr"></span></th>
+        <th class="sortable" data-sort="status">Status<span class="arr"></span></th>
+        <th class="sortable" data-sort="title">Finding<span class="arr"></span></th>
+        <th>Asset</th>
+        <th class="sortable" data-sort="age">Age<span class="arr"></span></th>
+        <th>Assignee</th><th>Triage</th></tr></thead>
         <tbody id="findings"></tbody></table>
     </section>
   </main>
@@ -155,6 +160,8 @@
     const TRIAGE = {active:"— triage —", false_positive:"False positive",
                     accepted_risk:"Accept risk", snoozed:"Snooze 30d"};
 
+    let sortField = "severity", sortOrder = "desc";
+
     async function loadFindings() {
       const p = new URLSearchParams();
       if (fStatus.value) p.set("effective_status", fStatus.value);
@@ -162,6 +169,7 @@
       if (fCategory.value) p.set("category", fCategory.value);
       if (fOverdue.checked) p.set("overdue", "true");
       if (fQ.value) p.set("q", fQ.value);
+      p.set("sort", sortField); p.set("order", sortOrder);
       const data = await api("/api/findings?" + p.toString());
       document.getElementById("findings").innerHTML = (data.items || []).map(f => {
         const age = f.age_days == null ? "—" : `${f.age_days}d`;
@@ -171,13 +179,28 @@
         return `<tr>
           <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
           <td><span class="pill st-${f.effective_status}">${f.effective_status.replace('_',' ')}</span></td>
-          <td>${esc(f.source)}</td>
-          <td><span class="link" onclick="openFinding(${f.id})">${esc(f.title)}</span></td>
+          <td><span class="link cell-title" title="${esc(f.title)}" onclick="openFinding(${f.id})">${esc(f.title)}</span>
+              <div class="f-src">${esc(f.source)}</div></td>
           <td class="muted">${esc(f.asset?.name || f.asset?.identifier)}</td>
           <td>${age}${sla}</td>
           <td>${assigneeCell(f)}</td>
           <td><select onchange="triage(${f.id}, this.value)">${opts}</select></td></tr>`;
-      }).join("") || `<tr><td colspan="8" class="muted">No findings — adjust filters or run a sync.</td></tr>`;
+      }).join("") || `<tr><td colspan="7" class="muted">No findings — adjust filters or run a sync.</td></tr>`;
+      updateSortHeaders();
+    }
+
+    function setSort(field) {
+      if (sortField === field) sortOrder = sortOrder === "desc" ? "asc" : "desc";
+      else { sortField = field; sortOrder = "desc"; }
+      loadFindings();
+    }
+    function updateSortHeaders() {
+      document.querySelectorAll("th.sortable").forEach(th => {
+        const active = th.dataset.sort === sortField;
+        th.classList.toggle("active", active);
+        const arr = th.querySelector(".arr");
+        if (arr) arr.textContent = active ? (sortOrder === "desc" ? " ↓" : " ↑") : "";
+      });
     }
 
     function assigneeCell(f) {
@@ -275,10 +298,11 @@
     [fStatus, fSeverity, fCategory].forEach(el => el.onchange = loadFindings);
     fOverdue.onchange = loadFindings;
     fQ.oninput = () => { clearTimeout(window._t); window._t = setTimeout(loadFindings, 300); };
+    document.querySelectorAll("th.sortable").forEach(th => th.onclick = () => setSort(th.dataset.sort));
 
     (async function init() {
       const me = await window.mePromise;
-      window._canAssign = me.role !== "dev";   // security team can assign
+      window._canAssign = me.role !== "dev";
       if (window._canAssign) {
         try { window._USERS = await api("/api/users"); } catch { window._USERS = []; }
       }
