@@ -90,7 +90,9 @@ def list_findings(
         stmt = stmt.where(Finding.category == category)
     if severity:
         stmt = stmt.where(Finding.severity == severity)
-    if effective_status:
+    if effective_status == "suppressed":
+        stmt = stmt.where(Finding.effective_status.in_(_SUPPRESSED))
+    elif effective_status:
         stmt = stmt.where(Finding.effective_status == effective_status)
     if triage_state:
         stmt = stmt.where(Finding.triage_state == triage_state)

@@ -40,6 +40,7 @@
         <select id="fStatus"><option value="open">Open</option>
           <option value="">All statuses</option>
           <option value="resolved">Resolved</option>
+          <option value="suppressed">Suppressed</option>
           <option value="accepted_risk">Accepted risk</option>
           <option value="false_positive">False positive</option>
           <option value="snoozed">Snoozed</option></select>
@@ -63,6 +64,15 @@
         <th class="sortable" data-sort="age">Age<span class="arr"></span></th>
         <th>Assignee</th><th>Triage</th></tr></thead>
         <tbody id="findings"></tbody></table>
+      <div class="pager">
+        <label class="muted" style="font-size:13px">Per page
+          <select id="fPageSize"><option>25</option><option selected>50</option>
+            <option>100</option><option>200</option></select></label>
+        <span class="spacer"></span>
+        <button id="prevPage" class="mini">‹ Prev</button>
+        <span id="pageInfo" class="muted"></span>
+        <button id="nextPage" class="mini">Next ›</button>
+      </div>
     </section>
   </main>
 
@@ -147,6 +157,16 @@
       });
     }
 
+    // Each card carries the findings filter it applies when clicked.
+    const CARD_FILTERS = [
+      { status: "open" },
+      { status: "open", severity: "critical" },
+      { status: "open", severity: "high" },
+      { status: "open", overdue: true },
+      { status: "suppressed" },
+      { status: "resolved" },
+    ];
+
     async function loadStats() {
       const s = await api("/api/stats");
       const sev = s.by_severity || {};
@@ -156,16 +176,40 @@
         ["Suppressed", s.suppressed_findings, false], ["Resolved", s.resolved_findings, false],
       ];
       document.getElementById("cards").innerHTML = cards.map(
-        ([l, n, isAlert]) => `<div class="card ${isAlert && n ? 'alert' : ''}">
+        ([l, n, isAlert], i) => `<div class="card clickable ${isAlert && n ? 'alert' : ''} ${i === window._activeCard ? 'active' : ''}"
+          onclick="applyCardFilter(${i})">
           <div class="n">${n}</div><div class="l">${l}</div></div>`
       ).join("");
       loadCharts(s);
     }
 
+    function applyCardFilter(i) {
+      const flt = CARD_FILTERS[i] || {};
+      window._activeCard = i;
+      fStatus.value = flt.status || "";
+      fSeverity.value = flt.severity || "";
+      fCategory.value = "";
+      fOverdue.checked = !!flt.overdue;
+      fQ.value = "";
+      page = 0;
+      loadStats();        // re-render cards to reflect the active highlight
+      loadFindings();
+      document.querySelector("#findings").closest("section")
+        .scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
     const TRIAGE = {active:"— triage —", false_positive:"False positive",
                     accepted_risk:"Accept risk", snoozed:"Snooze 30d"};
 
-    let sortField = "severity", sortOrder = "desc";
+    // Whole days a breached finding is past its SLA due date (null if not breached).
+    function daysOverdue(f) {
+      if (!f.sla_breached || !f.sla_due_at) return null;
+      return Math.max(0, Math.floor((Date.now() - new Date(f.sla_due_at).getTime()) / 864e5));
+    }
+    const shortDate = v => v ? new Date(v).toLocaleDateString() : "—";
+
+    let sortField = "severity", sortOrder = "desc", page = 0;
+    const pageSize = () => parseInt(fPageSize.value, 10) || 50;
 
     async function loadFindings() {
       const p = new URLSearchParams();
@@ -175,10 +219,14 @@
       if (fOverdue.checked) p.set("overdue", "true");
       if (fQ.value) p.set("q", fQ.value);
       p.set("sort", sortField); p.set("order", sortOrder);
+      p.set("limit", pageSize()); p.set("offset", page * pageSize());
       const data = await api("/api/findings?" + p.toString());
+      renderPager(data.total || 0, data.limit, data.offset);
       document.getElementById("findings").innerHTML = (data.items || []).map(f => {
         const age = f.age_days == null ? "—" : `${f.age_days}d`;
-        const sla = f.sla_breached ? `<span class="pill sla">SLA</span>` : "";
+        const od = daysOverdue(f);
+        const sla = od == null ? ""
+          : `<span class="pill sla" title="SLA due ${fmtDate(f.sla_due_at)}">SLA +${od}d</span>`;
         const opts = Object.entries(TRIAGE).map(([v, l]) =>
           `<option value="${v}" ${v === f.triage_state ? "selected" : ""}>${l}</option>`).join("");
         return `<tr>
@@ -187,16 +235,25 @@
           <td><span class="link cell-title" title="${esc(f.title)}" onclick="openFinding(${f.id})">${esc(f.title)}</span>
               <div class="f-src">${esc(f.source)}</div></td>
           <td class="muted">${esc(f.asset?.name || f.asset?.identifier || "—")}</td>
-          <td>${age}${sla}</td>
+          <td><div>${age} ${sla}</div><div class="f-src">found ${shortDate(f.first_seen)}</div></td>
           <td>${assigneeCell(f)}</td>
           <td><select onchange="triage(${f.id}, this.value)">${opts}</select></td></tr>`;
       }).join("") || `<tr><td colspan="7" class="muted">No findings — adjust filters or run a sync.</td></tr>`;
       updateSortHeaders();
     }
 
+    function renderPager(total, limit, offset) {
+      const from = total === 0 ? 0 : offset + 1;
+      const to = Math.min(offset + limit, total);
+      pageInfo.textContent = `${from}–${to} of ${total}`;
+      prevPage.disabled = offset <= 0;
+      nextPage.disabled = offset + limit >= total;
+    }
+
     function setSort(field) {
       if (sortField === field) sortOrder = sortOrder === "desc" ? "asc" : "desc";
       else { sortField = field; sortOrder = "desc"; }
+      page = 0;
       loadFindings();
     }
     function updateSortHeaders() {
@@ -240,6 +297,7 @@
 
     function renderFinding(f) {
       const a = f.asset || {};
+      const od = daysOverdue(f);
       const cvss = f.cvss_base_score != null
         ? f.cvss_base_score + (f.cvss_vector ? ` (${esc(f.cvss_vector)})` : "") : "";
       const refs = (f.refs || []).map(u => /^https?:\/\//i.test(u)   // only http(s); no javascript:
@@ -270,6 +328,7 @@
           ${drow("Assignee", esc(f.assigned_username || "unassigned"))}
           ${drow("Age", f.age_days != null ? f.age_days + "d" : "")}
           ${drow("SLA due", dt(f.sla_due_at))}
+          ${drow("SLA overdue", od != null ? od + " days past due" : "")}
           ${drow("First seen", dt(f.first_seen))}
           ${drow("Last seen", dt(f.last_seen))}
           ${drow("Resolved", dt(f.resolved_at))}
@@ -294,10 +353,20 @@
 
     function refresh() { loadStats(); loadFindings(); }
 
+    // A manual filter change resets to page 1 and drops the active-card highlight.
+    function onFilterChange() {
+      page = 0;
+      if (window._activeCard != null) { window._activeCard = null; loadStats(); }
+      loadFindings();
+    }
+
     syncBtn.onclick = () => syncAll(syncBtn, refresh);
-    [fStatus, fSeverity, fCategory].forEach(el => el.onchange = loadFindings);
-    fOverdue.onchange = loadFindings;
-    fQ.oninput = () => { clearTimeout(window._t); window._t = setTimeout(loadFindings, 300); };
+    [fStatus, fSeverity, fCategory].forEach(el => el.onchange = onFilterChange);
+    fOverdue.onchange = onFilterChange;
+    fQ.oninput = () => { clearTimeout(window._t); window._t = setTimeout(onFilterChange, 300); };
+    fPageSize.onchange = () => { page = 0; loadFindings(); };
+    prevPage.onclick = () => { if (page > 0) { page--; loadFindings(); } };
+    nextPage.onclick = () => { page++; loadFindings(); };
     document.querySelectorAll("th.sortable").forEach(th => th.onclick = () => setSort(th.dataset.sort));
 
     (async function init() {
