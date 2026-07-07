@@ -65,7 +65,7 @@ window.card = card; window.fmtDate = fmtDate; window.syncAll = syncAll;
 const NAV = [
   { href: "/", label: "Overview" },
   { href: "/connectors.html", label: "Connectors & Settings", gate: "security" },
-  { href: "/packages.html", label: "Packages", gate: "security" },
+  { href: "/packages.html", label: "Packages" },
   { href: "/containers.html", label: "Containers", gate: "security" },
   { href: "/status.html", label: "Status", gate: "security" },
   { href: "/users.html", label: "Users", gate: "admin" },

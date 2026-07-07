@@ -26,9 +26,11 @@ services:
     # Run migrations then boot the API.
     command: >
       sh -c "alembic upgrade head &&
-             uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload"
-    volumes:
-      - ./backend:/app/backend
+             uvicorn backend.app.main:app --host 0.0.0.0 --port 8000"
+    # NOTE: No source bind-mount for live reload. The project path contains a
+    # ':' (".../VS:Cursor Projects/...") and Docker rejects bind sources with a
+    # colon. Code is baked in via the Dockerfile COPY; rebuild to pick up
+    # backend changes:  docker compose up -d --build
 
 volumes:
   pgdata:

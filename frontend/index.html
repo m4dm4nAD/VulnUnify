@@ -225,7 +225,8 @@
       document.getElementById("findings").innerHTML = (data.items || []).map(f => {
         const age = f.age_days == null ? "—" : `${f.age_days}d`;
         const od = daysOverdue(f);
-        const sla = od == null ? ""
+        // Outside SLA: show just how many days over. Otherwise: show the age.
+        const top = od == null ? age
           : `<span class="pill sla" title="SLA due ${fmtDate(f.sla_due_at)}">SLA +${od}d</span>`;
         const opts = Object.entries(TRIAGE).map(([v, l]) =>
           `<option value="${v}" ${v === f.triage_state ? "selected" : ""}>${l}</option>`).join("");
@@ -235,7 +236,7 @@
           <td><span class="link cell-title" title="${esc(f.title)}" onclick="openFinding(${f.id})">${esc(f.title)}</span>
               <div class="f-src">${esc(f.source)}</div></td>
           <td class="muted">${esc(f.asset?.name || f.asset?.identifier || "—")}</td>
-          <td><div>${age} ${sla}</div><div class="f-src">found ${shortDate(f.first_seen)}</div></td>
+          <td><div>${top}</div><div class="f-src">found ${shortDate(f.first_seen)}</div></td>
           <td>${assigneeCell(f)}</td>
           <td><select onchange="triage(${f.id}, this.value)">${opts}</select></td></tr>`;
       }).join("") || `<tr><td colspan="7" class="muted">No findings — adjust filters or run a sync.</td></tr>`;

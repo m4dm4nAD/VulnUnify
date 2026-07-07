@@ -63,11 +63,18 @@ cp .env.example .env        # fill in credentials for the tools you use
 docker compose up --build   # runs migrations, starts Postgres + API
 ```
 
-- Dashboard: http://localhost:8000
+- Dashboard: http://localhost:8000 (the API serves the static `frontend/` at `/`)
 - API docs (OpenAPI): http://localhost:8000/docs
 
 A connector with no credentials is reported as **unconfigured** and skipped — so you
 can start with just one tool and add the rest later.
+
+> **Picking up code changes.** The image bakes in `backend/` and `frontend/` (no
+> source bind-mount / live reload in the container), so after editing either, rebuild:
+> `docker compose up -d --build`. For live reload while iterating, run the API
+> outside Docker instead — see [Local dev (without Docker)](#local-dev-without-docker).
+> (A host bind-mount can't be used when the project path contains a `:`, which Docker
+> rejects in volume specs.)
 
 ### Scheduled syncing
 

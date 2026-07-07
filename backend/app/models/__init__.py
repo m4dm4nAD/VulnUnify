@@ -6,11 +6,12 @@ from backend.app.models.connector_credential import ConnectorCredential
 from backend.app.models.connector_run import ConnectorRun
 from backend.app.models.error_log import ErrorLog
 from backend.app.models.finding import Finding
+from backend.app.models.package_scan import PackageScan
 from backend.app.models.session import Session
 from backend.app.models.user import User
 from backend.app.models.watched_package import WatchedPackage
 
 __all__ = [
     "Base", "Asset", "Finding", "ConnectorRun", "ConnectorCredential", "User", "Session",
-    "WatchedPackage", "AppSetting", "ErrorLog",
+    "WatchedPackage", "PackageScan", "AppSetting", "ErrorLog",
 ]

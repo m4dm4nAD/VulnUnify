@@ -12,15 +12,32 @@
     <h1>🛡️ VulnUnify</h1>
     <nav id="mainnav"></nav>
     <span id="authBox" class="authbox"></span>
-    <button id="scanBtn">Run OSV scan</button>
+    <button id="scanBtn" data-gate="security">Run OSV scan</button>
   </header>
   <main>
+    <!-- Self-service check — available to every logged-in user, including devs. -->
     <section>
-      <h2>Watch packages for supply-chain risk</h2>
-      <p class="muted">Import a lockfile to add its dependencies to the watchlist, then run an
+      <h2>Check a file for known vulnerabilities</h2>
+      <p class="muted">Upload a <code>package.json</code>, lockfile, or SBOM and we'll check each
+        pinned dependency against the <a class="link" href="https://osv.dev" target="_blank" rel="noopener">OSV</a>
+        database. This doesn't change the watchlist, but a record of what you searched is
+        kept for the security team.
+        Supported: <code>package.json</code>, <code>package-lock.json</code>,
+        <code>requirements.txt</code>, <code>go.sum</code>, CycloneDX &amp; SPDX (JSON).</p>
+      <div class="filters">
+        <input type="file" id="scanFile" accept=".json,.txt,.sum,.spdx,.cdx,.xml" />
+        <button class="mini" data-primary onclick="runScan()">Scan</button>
+        <span id="scanStatus" class="muted"></span>
+      </div>
+      <div id="scanResults" style="margin-top:10px"></div>
+    </section>
+
+    <!-- Persistent watchlist — security team only. -->
+    <section data-gate="security">
+      <h2>Watchlist import</h2>
+      <p class="muted">Import a lockfile to add its dependencies to the persistent watchlist, then run an
         OSV scan. Malicious packages and known CVEs appear as findings on the
-        Overview (filter category <code>supply_chain</code> / <code>sca</code>).
-        Supported: <code>package-lock.json</code>, <code>requirements.txt</code>, <code>go.sum</code>.</p>
+        Overview (filter category <code>supply_chain</code> / <code>sca</code>).</p>
       <div class="filters">
         <input type="file" id="mf" accept=".json,.txt,.sum" />
         <input id="src" placeholder="source label (optional, e.g. my-app)" />
@@ -30,14 +47,65 @@
       <div id="scanMsg" class="muted" style="margin-top:6px"></div>
     </section>
 
-    <section>
+    <section data-gate="security">
       <h2>Watched packages <span class="muted" id="pkgCount"></span></h2>
       <table><thead><tr><th>Ecosystem</th><th>Name</th><th>Version</th><th>Source</th><th></th></tr></thead>
         <tbody id="pkgs"></tbody></table>
     </section>
+
+    <!-- Self-service scan history — what devs searched via /scan. -->
+    <section data-gate="security">
+      <h2>Recent scans <span class="muted" id="scanCount"></span></h2>
+      <p class="muted">Every self-service scan is logged here — the packages searched, who ran it, and when.</p>
+      <table><thead><tr><th>When</th><th>User</th><th>File</th><th>Searched</th><th>Vulnerable</th><th>Packages</th></tr></thead>
+        <tbody id="scanHistory"></tbody></table>
+    </section>
   </main>
 
   <script>
+    // ---- self-service scan (all roles) ----
+    async function runScan() {
+      const f = document.getElementById("scanFile").files[0];
+      const status = document.getElementById("scanStatus");
+      const out = document.getElementById("scanResults");
+      if (!f) { status.textContent = "choose a file first"; return; }
+      status.textContent = "Scanning…"; out.innerHTML = "";
+      let j;
+      try {
+        j = await api("/api/packages/scan", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: f.name, content: await f.text() }) });
+      } catch (e) { status.textContent = ""; return; }   // api() already toasted
+
+      const vword = j.total_vulns === 1 ? "vulnerability" : "vulnerabilities";
+      status.textContent = `Checked ${j.checked} package(s) · ${j.vulnerable} vulnerable · ${j.total_vulns} ${vword}`
+        + (j.ecosystems.length ? ` · ${j.ecosystems.join(", ")}` : "");
+      if (!j.results.length) {
+        out.innerHTML = j.checked
+          ? `<p class="ok-note">✅ No known vulnerabilities in the ${j.checked} checked package(s).</p>`
+          : `<p class="muted">No packages with an exact version were found in that file.</p>`;
+        return;
+      }
+      const rows = j.results.flatMap(p => p.vulns.map((v, i) => `<tr>
+        <td>${i === 0
+          ? `<strong>${esc(p.name)}</strong> <span class="muted">${esc(p.version)} · ${esc(p.ecosystem)}</span>`
+          : ""}</td>
+        <td><span class="pill sev-${esc(v.severity)}">${esc(v.severity)}</span>${
+          v.malicious ? ' <span class="pill sla">malicious</span>' : ""}</td>
+        <td>${vulnLink(v)}<div class="muted">${esc(v.summary)}</div></td>
+        <td class="muted">${esc((v.cves || []).join(", "))}</td></tr>`)).join("");
+      out.innerHTML = `<table><thead><tr><th>Package</th><th>Severity</th>
+        <th>Vulnerability</th><th>CVEs</th></tr></thead><tbody>${rows}</tbody></table>`;
+      if (canSeeScans) loadScans();   // the search we just ran is now in the history
+    }
+    function vulnLink(v) {
+      const url = (v.references || [])[0];
+      return url && /^https?:\/\//i.test(url)
+        ? `<a class="link" href="${esc(url)}" target="_blank" rel="noopener">${esc(v.id)}</a>`
+        : `<span class="link">${esc(v.id)}</span>`;
+    }
+
+    // ---- watchlist (security only) ----
     async function load() {
       const pkgs = await api("/api/packages");
       document.getElementById("pkgCount").textContent = pkgs.length ? `— ${pkgs.length}` : "";
@@ -68,16 +136,45 @@
       load();
     }
 
-    scanBtn.onclick = async () => {
-      scanBtn.disabled = true; scanBtn.textContent = "Scanning…";
-      const msg = document.getElementById("scanMsg");
-      try {
-        const r = await api("/api/sync/osv", { method: "POST" });
-        msg.textContent = `OSV scan ${r.status} — ${r.findings_count} findings. See Overview › category supply_chain / sca.`;
-      } finally { scanBtn.disabled = false; scanBtn.textContent = "Run OSV scan"; }
-    };
+    // ---- self-service scan history (security only) ----
+    let canSeeScans = false;
+    async function loadScans() {
+      const scans = await api("/api/packages/scans");
+      document.getElementById("scanCount").textContent = scans.length ? `— ${scans.length}` : "";
+      document.getElementById("scanHistory").innerHTML = scans.map(s => {
+        const names = (s.packages || []).map(p => p.name);
+        const preview = names.slice(0, 6).join(", ") + (names.length > 6 ? `, +${names.length - 6} more` : "");
+        return `<tr>
+          <td class="muted" title="${esc(s.created_at)}">${esc(fmtTime(s.created_at))}</td>
+          <td>${esc(s.username || "—")}</td>
+          <td class="muted">${esc(s.filename)}</td>
+          <td>${s.checked}</td>
+          <td>${s.vulnerable ? `<span class="pill sla">${s.vulnerable}</span>` : "0"}</td>
+          <td class="muted" title="${esc(names.join(", "))}">${esc(preview) || "—"}</td></tr>`;
+      }).join("") || `<tr><td colspan="6" class="muted">No scans yet — run one above.</td></tr>`;
+    }
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      return isNaN(d) ? iso : d.toLocaleString();
+    }
 
-    requireRole("security").then(load);
+    (async function init() {
+      const me = await window.mePromise;
+      if (!me) return;   // auth failed; app.js handles the redirect
+      if (me.role !== "dev") {          // security team: watchlist + persistent OSV scan
+        canSeeScans = true;
+        load();
+        loadScans();
+        scanBtn.onclick = async () => {
+          scanBtn.disabled = true; scanBtn.textContent = "Scanning…";
+          const msg = document.getElementById("scanMsg");
+          try {
+            const r = await api("/api/sync/osv", { method: "POST" });
+            msg.textContent = `OSV scan ${r.status} — ${r.findings_count} findings. See Overview › category supply_chain / sca.`;
+          } finally { scanBtn.disabled = false; scanBtn.textContent = "Run OSV scan"; }
+        };
+      }
+    })();
   </script>
 </body>
 </html>

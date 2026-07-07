@@ -70,6 +70,18 @@ async def _limit_body_size(request: Request, call_next):
         return JSONResponse(status_code=413, content={"detail": "request body too large"})
     return await call_next(request)
 
+
+@app.middleware("http")
+async def _revalidate_static(request: Request, call_next):
+    """Force browsers to revalidate the dashboard's static assets so an edit is
+    picked up on the next load (StaticFiles still answers 304 when unchanged),
+    instead of silently serving a stale cached page/script/style."""
+    response = await call_next(request)
+    path = request.url.path
+    if request.method == "GET" and (path == "/" or path.endswith((".html", ".css", ".js"))):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 # Auth router is open. Findings + users do per-route role checks internally;
 # the rest are security-team only (devs are 403'd at the router boundary).
 app.include_router(routes_auth.router)
@@ -82,7 +94,9 @@ app.include_router(routes_connectors.router, dependencies=_security)
 app.include_router(routes_sync.router, dependencies=_security)
 app.include_router(routes_lifecycle.router, dependencies=_security)
 app.include_router(routes_settings.router, dependencies=_security)
-app.include_router(routes_packages.router, dependencies=_security)
+# Packages: only /scan is open to all logged-in users (self-service dep check);
+# watchlist import/list/delete enforce require_security per-route.
+app.include_router(routes_packages.router, dependencies=_logged_in)
 app.include_router(routes_containers.router, dependencies=_security)
 app.include_router(routes_errors.router, dependencies=_security)
 

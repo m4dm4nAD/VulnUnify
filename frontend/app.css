@@ -98,6 +98,7 @@ button.mini:hover{background:#323c4d}
 
 .link{color:#60a5fa;cursor:pointer}
 .link:hover{text-decoration:underline}
+.ok-note{color:#22c55e;font-size:14px;margin:6px 0}
 .modal.detail{width:680px}
 .dpills{display:flex;gap:8px;align-items:center;margin:6px 0 14px;flex-wrap:wrap}
 .dsec{display:flex;flex-direction:column;margin-bottom:6px}
