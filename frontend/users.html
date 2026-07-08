@@ -43,8 +43,10 @@
 
     async function loadUsers() {
       const users = await api("/api/users");
-      document.getElementById("users").innerHTML = users.map(u => {
-        const roleSel = `<select onchange="changeRole(${u.id}, this.value)">${
+      renderRows("users", users, u => {
+        // data-* + delegated listeners (below) avoid inline onclick, which
+        // breaks/injects on names containing quotes.
+        const roleSel = `<select data-act="role" data-id="${u.id}">${
           ROLES.map(r => `<option value="${r}" ${r === u.role ? "selected" : ""}>${r}</option>`).join("")}</select>`;
         const self = window.ME && window.ME.id === u.id;
         return `<tr>
@@ -52,51 +54,65 @@
           <td class="muted">${esc(u.email || "—")}</td>
           <td>${roleSel}</td>
           <td>${u.is_active ? "yes" : '<span class="muted">no</span>'}</td>
-          <td class="muted">—</td>
+          <td class="muted">${u.created_at ? esc(fmtDate(u.created_at)) : "—"}</td>
           <td><div class="row-actions">
-            <button class="mini" onclick="resetPw(${u.id}, '${esc(u.username)}')">Reset password</button>
-            <button class="mini" onclick="toggleActive(${u.id}, ${!u.is_active})">${u.is_active ? "Deactivate" : "Activate"}</button>
-            ${self ? "" : `<button class="mini" onclick="delUser(${u.id}, '${esc(u.username)}')">Delete</button>`}
+            <button class="mini" data-act="resetpw" data-id="${u.id}" data-name="${esc(u.username)}">Reset password</button>
+            <button class="mini" data-act="toggle" data-id="${u.id}" data-active="${!u.is_active}">${u.is_active ? "Deactivate" : "Activate"}</button>
+            ${self ? "" : `<button class="mini" data-act="del" data-id="${u.id}" data-name="${esc(u.username)}">Delete</button>`}
           </div></td></tr>`;
-      }).join("");
+      }, { colspan: 6, empty: "No users." });
     }
+
+    // Delegated row actions (buttons + role <select>).
+    const usersBody = document.getElementById("users");
+    usersBody.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      const { act, id, name } = btn.dataset;
+      if (act === "resetpw") resetPw(+id, name);
+      else if (act === "toggle") toggleActive(+id, btn.dataset.active === "true");
+      else if (act === "del") delUser(+id, name);
+    });
+    usersBody.addEventListener("change", (e) => {
+      const sel = e.target.closest("select[data-act='role']");
+      if (sel) changeRole(+sel.dataset.id, sel.value);
+    });
 
     async function addUser() {
       const err = document.getElementById("nuErr"); err.textContent = "";
       const body = { username: nuUser.value.trim(), email: nuEmail.value.trim() || null,
                      password: nuPass.value, role: nuRole.value };
       if (!body.username || !body.password) { err.textContent = "username and password required"; return; }
-      const res = await fetch("/api/users", { method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (res.ok) { nuUser.value = nuEmail.value = nuPass.value = ""; loadUsers(); }
-      else { err.textContent = res.status === 409 ? "username already exists" : "could not create user"; }
+      const r = await apiTry("/api/users", { method: "POST", json: body });
+      if (r.ok) { nuUser.value = nuEmail.value = nuPass.value = ""; loadUsers(); }
+      else { err.textContent = r.status === 409 ? "username already exists"
+             : detailOf(r.body, "could not create user"); }
     }
 
     async function changeRole(id, role) {
-      const res = await fetch(`/api/users/${id}`, { method: "PATCH", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) });
-      if (!res.ok) alert((await res.json()).detail || "could not change role");
+      const r = await apiTry(`/api/users/${id}`, { method: "PATCH", json: { role } });
+      if (!r.ok) toast(detailOf(r.body, "could not change role"));
       loadUsers();
     }
 
     async function toggleActive(id, active) {
-      await fetch(`/api/users/${id}`, { method: "PATCH", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: active }) });
+      const r = await apiTry(`/api/users/${id}`, { method: "PATCH", json: { is_active: active } });
+      if (!r.ok) toast(detailOf(r.body, "could not update user"));
       loadUsers();
     }
 
     async function resetPw(id, name) {
       const pw = prompt(`New password for ${name}:`);
       if (!pw) return;
-      await fetch(`/api/users/${id}/password`, { method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw }) });
-      alert("Password updated.");
+      const r = await apiTry(`/api/users/${id}/password`, { method: "POST", json: { password: pw } });
+      toast(r.ok ? "Password updated." : detailOf(r.body, "could not update password"),
+            r.ok ? "success" : "error");
     }
 
     async function delUser(id, name) {
       if (!confirm(`Delete ${name}? Their assigned findings become unassigned.`)) return;
-      const res = await fetch(`/api/users/${id}`, { method: "DELETE", credentials: "same-origin" });
-      if (!res.ok) alert((await res.json()).detail || "could not delete");
+      const r = await apiTry(`/api/users/${id}`, { method: "DELETE" });
+      if (!r.ok) toast(detailOf(r.body, "could not delete"));
       loadUsers();
     }
 

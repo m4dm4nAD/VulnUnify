@@ -8,8 +8,6 @@ POST aggregated-issues per project. Docs: https://snyk.docs.apiary.io/
 """
 from __future__ import annotations
 
-import httpx
-
 from backend.app.connectors.base import (
     BaseConnector,
     ConfigField,
@@ -35,18 +33,15 @@ class SnykConnector(BaseConnector):
                     placeholder="https://api.snyk.io"),
     ]
 
-    def is_configured(self) -> bool:
-        return bool(self.config("snyk_token") and self.config("snyk_org_id"))
-
     def fetch(self) -> list[NormalizedFinding]:
         org = self.config("snyk_org_id")
         findings: list[NormalizedFinding] = []
-        with httpx.Client(
-            base_url=self.config("snyk_base_url"),
+        client = self._rest_client(
+            base_url_key="snyk_base_url",
             headers={"Authorization": f"token {self.config('snyk_token')}",
                      "Content-Type": "application/json"},
-            timeout=60.0,
-        ) as client:
+        )
+        with client:
             resp = client.get(f"/v1/org/{org}/projects")
             resp.raise_for_status()
             for project in resp.json().get("projects", []):

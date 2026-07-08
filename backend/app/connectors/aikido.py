@@ -53,27 +53,20 @@ class AikidoConnector(BaseConnector):
                     placeholder="https://app.aikido.dev/api"),
     ]
 
-    def is_configured(self) -> bool:
-        return bool(self.config("aikido_client_id") and self.config("aikido_client_secret"))
-
     def _get_token(self) -> str:
-        resp = httpx.post(
+        return self._oauth_token(
             f"{self.config('aikido_base_url')}/oauth/token",
             data={"grant_type": "client_credentials"},
             auth=httpx.BasicAuth(self.config("aikido_client_id"), self.config("aikido_client_secret")),
-            timeout=30.0,
         )
-        resp.raise_for_status()
-        return resp.json()["access_token"]
 
     def fetch(self) -> list[NormalizedFinding]:
         token = self._get_token()
         findings: list[NormalizedFinding] = []
-        with httpx.Client(
-            base_url=self.config("aikido_base_url"),
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=60.0,
-        ) as client:
+        client = self._rest_client(
+            base_url_key="aikido_base_url", headers={"Authorization": f"Bearer {token}"}
+        )
+        with client:
             page = 0
             while True:
                 resp = client.get(

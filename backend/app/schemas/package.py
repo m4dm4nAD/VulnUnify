@@ -3,13 +3,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+# Upper bound on uploaded file contents (matches the 32 MB request-body cap and
+# enforces it even for chunked bodies that omit Content-Length).
+MAX_CONTENT_LEN = 32 * 1024 * 1024
 
 
 class PackageImportIn(BaseModel):
-    filename: str           # used to pick the parser (package-lock.json, requirements.txt, go.sum)
-    content: str            # the file contents
-    source: str | None = None  # label for where these deps came from (defaults to filename)
+    filename: str = Field(max_length=512)   # picks the parser (package-lock.json, requirements.txt)
+    content: str = Field(max_length=MAX_CONTENT_LEN)   # the file contents
+    source: str | None = Field(None, max_length=256)   # label (defaults to filename)
 
 
 class WatchedPackageOut(BaseModel):
@@ -24,8 +28,8 @@ class WatchedPackageOut(BaseModel):
 
 
 class PackageScanIn(BaseModel):
-    filename: str           # picks the parser (package.json, lockfile, SBOM, …)
-    content: str            # the file contents
+    filename: str = Field(max_length=512)   # picks the parser (package.json, lockfile, SBOM, …)
+    content: str = Field(max_length=MAX_CONTENT_LEN)   # the file contents
 
 
 class ScanVulnOut(BaseModel):

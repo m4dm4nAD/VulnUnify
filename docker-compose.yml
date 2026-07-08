@@ -27,6 +27,14 @@ services:
     command: >
       sh -c "alembic upgrade head &&
              uvicorn backend.app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      # slim image has no curl/wget; use the interpreter that's already here.
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
     # NOTE: No source bind-mount for live reload. The project path contains a
     # ':' (".../VS:Cursor Projects/...") and Docker rejects bind sources with a
     # colon. Code is baked in via the Dockerfile COPY; rebuild to pick up

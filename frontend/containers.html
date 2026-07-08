@@ -45,11 +45,11 @@
   <script>
     async function load() {
       const imgs = await api("/api/containers/images");
-      document.getElementById("imgCount").textContent = imgs.length ? `— ${imgs.length}` : "";
-      document.getElementById("images").innerHTML = imgs.map(i => `<tr>
+      renderRows("images", imgs, i => `<tr>
         <td>${esc(i.image)}</td><td>${i.open}</td>
-        <td>${i.critical ? `<span class="pill sev-critical">${i.critical}</span>` : "0"}</td></tr>`).join("")
-        || `<tr><td colspan="3" class="muted">No container scans yet — upload a report or sync the Snyk connector.</td></tr>`;
+        <td>${i.critical ? `<span class="pill sev-critical">${i.critical}</span>` : "0"}</td></tr>`,
+        { colspan: 3, empty: "No container scans yet — upload a report or sync the Snyk connector.",
+          countEl: "imgCount" });
     }
 
     async function importReport() {
@@ -57,14 +57,12 @@
       const f = document.getElementById("report").files[0];
       if (!f) { msg.textContent = "choose a report file first"; return; }
       const body = { tool: document.getElementById("tool").value, content: await f.text() };
-      const res = await fetch("/api/containers/import", { method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = await res.json().catch(() => ({}));
-      if (res.ok) {
-        msg.textContent = `Imported ${j.findings} findings from ${j.images.length} image(s)`
-          + (j.resolved ? `, resolved ${j.resolved} fixed` : "") + ".";
+      const r = await apiTry("/api/containers/import", { method: "POST", json: body });
+      if (r.ok) {
+        msg.textContent = `Imported ${r.body.findings} findings from ${r.body.images.length} image(s)`
+          + (r.body.resolved ? `, resolved ${r.body.resolved} fixed` : "") + ".";
         load();
-      } else { msg.textContent = j.detail || "import failed"; }
+      } else { msg.textContent = detailOf(r.body, "import failed"); }
     }
 
     requireRole("security").then(load);

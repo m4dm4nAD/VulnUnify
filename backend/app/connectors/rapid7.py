@@ -39,26 +39,16 @@ class Rapid7Connector(BaseConnector):
         ConfigField(key="rapid7_password", label="Password", secret=True),
     ]
 
-    def is_configured(self) -> bool:
-        return bool(
-            self.config("rapid7_base_url")
-            and self.config("rapid7_username")
-            and self.config("rapid7_password")
-        )
-
-    def _client(self) -> httpx.Client:
-        return httpx.Client(
-            base_url=self.config("rapid7_base_url"),
-            auth=httpx.BasicAuth(self.config("rapid7_username"), self.config("rapid7_password")),
-            verify=settings.rapid7_verify_ssl,  # bool; configured via env only
-            headers={"Accept": "application/json"},
-            timeout=60.0,
-        )
-
     def fetch(self) -> list[NormalizedFinding]:
         findings: list[NormalizedFinding] = []
         vuln_cache: dict[str, dict] = {}
-        with self._client() as client:
+        client = self._rest_client(
+            base_url_key="rapid7_base_url",
+            auth=httpx.BasicAuth(self.config("rapid7_username"), self.config("rapid7_password")),
+            verify=settings.rapid7_verify_ssl,  # bool; configured via env only
+            headers={"Accept": "application/json"},
+        )
+        with client:
             for asset in self._paged(client, "/api/3/assets"):
                 for finding in self._paged(
                     client, f"/api/3/assets/{asset['id']}/vulnerabilities"

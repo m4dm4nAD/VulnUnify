@@ -31,8 +31,11 @@ from backend.app.scheduler import shutdown_scheduler, start_scheduler
 from backend.app.services import errorlog
 from backend.app.services.auth import seed_initial_admin
 
-logging.basicConfig(level=settings.log_level)
-structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.INFO))
+# One level drives both stdlib logging and structlog, so LOG_LEVEL actually
+# takes effect (structlog previously hardcoded INFO, ignoring the setting).
+_LOG_LEVEL = getattr(logging, settings.log_level.upper(), logging.INFO)
+logging.basicConfig(level=_LOG_LEVEL)
+structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(_LOG_LEVEL))
 
 
 @asynccontextmanager
@@ -53,21 +56,46 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# The dashboard is served same-origin, so CORS is only needed when the API is
+# called from another origin. Off by default (no wildcard); set CORS_ALLOW_ORIGINS
+# to an explicit list to enable credentialed cross-origin access.
+if settings.cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 _MAX_BODY_BYTES = 32 * 1024 * 1024  # 32 MB cap on uploads (manifests/scan reports)
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 @app.middleware("http")
 async def _limit_body_size(request: Request, call_next):
+    # Fast reject on a declared oversized length. The hard enforcement lives on
+    # the request schemas (max_length on upload `content` fields), which also
+    # covers chunked bodies that omit Content-Length.
     cl = request.headers.get("content-length")
     if cl and cl.isdigit() and int(cl) > _MAX_BODY_BYTES:
         return JSONResponse(status_code=413, content={"detail": "request body too large"})
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def _origin_check(request: Request, call_next):
+    """CSRF defense-in-depth: in production, reject state-changing requests whose
+    browser Origin isn't same-origin (or an allowed CORS origin). Complements the
+    SameSite=Lax cookie. Non-browser clients (no Origin header) are unaffected."""
+    if settings.is_production and request.method in _MUTATING_METHODS:
+        origin = request.headers.get("origin")
+        if origin:
+            allowed = {str(request.base_url).rstrip("/"), *settings.cors_origins}
+            if origin.rstrip("/") not in allowed:
+                return JSONResponse(
+                    status_code=403, content={"detail": "cross-origin request blocked"}
+                )
     return await call_next(request)
 
 

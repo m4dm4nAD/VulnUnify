@@ -10,6 +10,7 @@ import hashlib
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+import httpx
 from pydantic import BaseModel, Field
 
 from backend.app.config import settings
@@ -20,6 +21,10 @@ from backend.app.connectors.enums import (
     Severity,
 )
 from backend.app.services import credentials as cred_store
+
+# Shared HTTP timeouts for all REST/GraphQL connectors (seconds).
+HTTP_TIMEOUT = 60.0        # data requests (exports, paged pulls)
+TOKEN_TIMEOUT = 30.0       # OAuth token exchanges
 
 
 class NormalizedAsset(BaseModel):
@@ -125,9 +130,47 @@ class BaseConnector(ABC):
             return self._overrides[key]
         return str(getattr(settings, key, "") or "")
 
-    @abstractmethod
     def is_configured(self) -> bool:
-        """True when required credentials/config are present."""
+        """True when every `required` config field has a value.
+
+        Derived from `config_fields` so it can't drift from the declared form;
+        override only for non-standard rules. A connector with no fields (e.g.
+        a public API) is always configured.
+        """
+        return all(self.config(f.key) for f in self.config_fields if f.required)
+
+    # -- shared HTTP helpers (used by REST/GraphQL connectors) --
+
+    def _rest_client(
+        self,
+        *,
+        base_url_key: str | None = None,
+        headers: dict | None = None,
+        auth: httpx.Auth | None = None,
+        verify: bool = True,
+    ) -> httpx.Client:
+        """A configured httpx.Client with the shared timeout.
+
+        `base_url_key` is a config key resolved to the client's base URL.
+        """
+        return httpx.Client(
+            base_url=self.config(base_url_key) if base_url_key else "",
+            headers=headers or {},
+            auth=auth,
+            verify=verify,
+            timeout=HTTP_TIMEOUT,
+        )
+
+    def _oauth_token(
+        self, token_url: str, *, data: dict, auth: httpx.Auth | None = None
+    ) -> str:
+        """OAuth2 client-credentials token exchange, shared by OAuth connectors."""
+        resp = httpx.post(token_url, data=data, auth=auth, timeout=TOKEN_TIMEOUT)
+        resp.raise_for_status()
+        token = resp.json().get("access_token")
+        if not token:
+            raise RuntimeError(f"{self.name}: no access_token in token response")
+        return token
 
     @abstractmethod
     def fetch(self) -> list[NormalizedFinding]:

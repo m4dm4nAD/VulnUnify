@@ -8,18 +8,20 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.deps import require_security, require_security_admin
 from backend.app.db import get_db
-from backend.app.models.user import User
+from backend.app.models.user import User, UserRole
 from backend.app.schemas.user import PasswordIn, UserCreate, UserOut, UserUpdate
 from backend.app.services import auth
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+_ADMIN = UserRole.SECURITY_ADMIN.value
 
 
 def _active_admins(db: Session) -> int:
     return db.scalar(
         select(func.count())
         .select_from(User)
-        .where(User.role == "security_admin", User.is_active.is_(True))
+        .where(User.role == _ADMIN, User.is_active.is_(True))
     ) or 0
 
 
@@ -52,16 +54,16 @@ def update_user(
     user_id: int,
     body: UserUpdate,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_security_admin),
+    _: User = Depends(require_security_admin),
 ):
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(404, "user not found")
     # Don't let the last admin demote or deactivate themselves into lockout.
-    demoting = (body.role is not None and body.role.value != "security_admin") or (
+    demoting = (body.role is not None and body.role.value != _ADMIN) or (
         body.is_active is False
     )
-    if user.role == "security_admin" and demoting and _active_admins(db) <= 1:
+    if user.role == _ADMIN and demoting and _active_admins(db) <= 1:
         raise HTTPException(400, "cannot remove the last active security_admin")
 
     if body.email is not None:
@@ -100,7 +102,7 @@ def delete_user(
         raise HTTPException(404, "user not found")
     if user.id == actor.id:
         raise HTTPException(400, "cannot delete yourself")
-    if user.role == "security_admin" and _active_admins(db) <= 1:
+    if user.role == _ADMIN and _active_admins(db) <= 1:
         raise HTTPException(400, "cannot delete the last active security_admin")
     db.delete(user)  # findings.assigned_user_id is set null via FK
     db.commit()

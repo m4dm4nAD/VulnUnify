@@ -1,0 +1,24 @@
+# Keep the build context small and secrets out of the image.
+# (COPYs are explicit today, but this is defense-in-depth if that changes.)
+.venv/
+venv/
+.git/
+.gitignore
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets / local state — never bake these in.
+.env
+.vulnunify_secret_key
+
+# Editor / OS cruft and docs not needed at runtime.
+.DS_Store
+*.log
+docs/
+README.md
+node_modules/
+dist/

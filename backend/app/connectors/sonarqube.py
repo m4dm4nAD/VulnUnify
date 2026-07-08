@@ -52,9 +52,6 @@ class SonarQubeConnector(BaseConnector):
                     placeholder="comma-separated (optional)"),
     ]
 
-    def is_configured(self) -> bool:
-        return bool(self.config("sonarqube_token"))
-
     def fetch(self) -> list[NormalizedFinding]:
         params = {"types": "VULNERABILITY", "ps": _PAGE_SIZE}
         if self.config("sonarqube_organization"):
@@ -63,11 +60,11 @@ class SonarQubeConnector(BaseConnector):
             params["componentKeys"] = self.config("sonarqube_project_keys")
 
         findings: list[NormalizedFinding] = []
-        with httpx.Client(
-            base_url=self.config("sonarqube_base_url"),
+        client = self._rest_client(
+            base_url_key="sonarqube_base_url",
             auth=httpx.BasicAuth(self.config("sonarqube_token"), ""),
-            timeout=60.0,
-        ) as client:
+        )
+        with client:
             page = 1
             while True:
                 resp = client.get("/api/issues/search", params={**params, "p": page})

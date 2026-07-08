@@ -108,12 +108,11 @@
     // ---- watchlist (security only) ----
     async function load() {
       const pkgs = await api("/api/packages");
-      document.getElementById("pkgCount").textContent = pkgs.length ? `— ${pkgs.length}` : "";
-      document.getElementById("pkgs").innerHTML = pkgs.map(p => `<tr>
+      renderRows("pkgs", pkgs, p => `<tr>
         <td>${esc(p.ecosystem)}</td><td>${esc(p.name)}</td><td>${esc(p.version)}</td>
         <td class="muted">${esc(p.source)}</td>
-        <td><button class="mini" onclick="delPkg(${p.id})">Remove</button></td></tr>`).join("")
-        || `<tr><td colspan="5" class="muted">No packages watched yet — import a lockfile above.</td></tr>`;
+        <td><button class="mini" onclick="delPkg(${p.id})">Remove</button></td></tr>`,
+        { colspan: 5, empty: "No packages watched yet — import a lockfile above.", countEl: "pkgCount" });
     }
 
     async function importManifest() {
@@ -122,17 +121,16 @@
       if (!f) { msg.textContent = "choose a file first"; return; }
       const body = { filename: f.name, content: await f.text(),
                      source: document.getElementById("src").value.trim() || f.name };
-      const res = await fetch("/api/packages/import", { method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = await res.json().catch(() => ({}));
-      if (res.ok) {
-        msg.textContent = `Added ${j.added} of ${j.parsed} (${(j.ecosystems || []).join(", ")})`;
+      const r = await apiTry("/api/packages/import", { method: "POST", json: body });
+      if (r.ok) {
+        msg.textContent = `Added ${r.body.added} of ${r.body.parsed} (${(r.body.ecosystems || []).join(", ")})`;
         load();
-      } else { msg.textContent = j.detail || "import failed"; }
+      } else { msg.textContent = detailOf(r.body, "import failed"); }
     }
 
     async function delPkg(id) {
-      await fetch(`/api/packages/${id}`, { method: "DELETE", credentials: "same-origin" });
+      const r = await apiTry(`/api/packages/${id}`, { method: "DELETE" });
+      if (!r.ok) { toast(detailOf(r.body, "could not remove package")); return; }
       load();
     }
 
@@ -140,26 +138,21 @@
     let canSeeScans = false;
     async function loadScans() {
       const scans = await api("/api/packages/scans");
-      document.getElementById("scanCount").textContent = scans.length ? `— ${scans.length}` : "";
-      document.getElementById("scanHistory").innerHTML = scans.map(s => {
+      renderRows("scanHistory", scans, s => {
         const names = (s.packages || []).map(p => p.name);
         const preview = names.slice(0, 6).join(", ") + (names.length > 6 ? `, +${names.length - 6} more` : "");
         return `<tr>
-          <td class="muted" title="${esc(s.created_at)}">${esc(fmtTime(s.created_at))}</td>
+          <td class="muted" title="${esc(s.created_at)}">${esc(fmtDate(s.created_at))}</td>
           <td>${esc(s.username || "—")}</td>
           <td class="muted">${esc(s.filename)}</td>
           <td>${s.checked}</td>
           <td>${s.vulnerable ? `<span class="pill sla">${s.vulnerable}</span>` : "0"}</td>
           <td class="muted" title="${esc(names.join(", "))}">${esc(preview) || "—"}</td></tr>`;
-      }).join("") || `<tr><td colspan="6" class="muted">No scans yet — run one above.</td></tr>`;
-    }
-    function fmtTime(iso) {
-      const d = new Date(iso);
-      return isNaN(d) ? iso : d.toLocaleString();
+      }, { colspan: 6, empty: "No scans yet — run one above.", countEl: "scanCount" });
     }
 
     (async function init() {
-      const me = await window.mePromise;
+      const me = await initPage();
       if (!me) return;   // auth failed; app.js handles the redirect
       if (me.role !== "dev") {          // security team: watchlist + persistent OSV scan
         canSeeScans = true;

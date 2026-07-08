@@ -20,15 +20,21 @@ log = structlog.get_logger()
 
 # --- passwords ---
 
+# bcrypt hashes only the first 72 bytes and recent versions raise on longer
+# input, so truncate consistently on both sides (same 72 bytes => same result).
+def _pw_bytes(plain: str) -> bytes:
+    return plain.encode()[:72]
+
+
 def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(_pw_bytes(plain), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str | None) -> bool:
     if not hashed:
         return False
     try:
-        return bcrypt.checkpw(plain.encode(), hashed.encode())
+        return bcrypt.checkpw(_pw_bytes(plain), hashed.encode())
     except ValueError:
         return False
 

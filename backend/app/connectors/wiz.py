@@ -6,8 +6,6 @@ cursor. Docs: https://win.wiz.io/reference/quickstart  /  .../issues
 """
 from __future__ import annotations
 
-import httpx
-
 from backend.app.connectors.base import (
     BaseConnector,
     ConfigField,
@@ -18,9 +16,7 @@ from backend.app.connectors.enums import AssetType, FindingCategory, FindingStat
 from backend.app.normalize import severity as sev
 from backend.app.normalize.dates import parse_iso
 
-# Audience for the client-credentials grant. Modern tenants use "wiz-api";
-# some older tenants use "beyond-api".
-_AUTH_AUDIENCE = "wiz-api"
+_PAGE_SIZE = 100
 
 # Wiz issue status -> normalized status.
 _STATUS_MAP = {
@@ -77,40 +73,35 @@ class WizConnector(BaseConnector):
                     placeholder="https://api.us1.app.wiz.io/graphql"),
         ConfigField(key="wiz_auth_url", label="Auth URL", required=False,
                     placeholder="https://auth.app.wiz.io/oauth/token"),
+        # Modern tenants use "wiz-api"; some older tenants use "beyond-api".
+        ConfigField(key="wiz_auth_audience", label="Auth audience", required=False,
+                    placeholder="wiz-api"),
     ]
 
-    def is_configured(self) -> bool:
-        return bool(self.config("wiz_client_id") and self.config("wiz_client_secret"))
-
     def _get_token(self) -> str:
-        resp = httpx.post(
+        return self._oauth_token(
             self.config("wiz_auth_url"),
             data={
                 "grant_type": "client_credentials",
-                "audience": _AUTH_AUDIENCE,
+                "audience": self.config("wiz_auth_audience"),
                 "client_id": self.config("wiz_client_id"),
                 "client_secret": self.config("wiz_client_secret"),
             },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=30.0,
         )
-        resp.raise_for_status()
-        return resp.json()["access_token"]
 
     def fetch(self) -> list[NormalizedFinding]:
         token = self._get_token()
         findings: list[NormalizedFinding] = []
         after: str | None = None
         variables = {
-            "first": 100,
+            "first": _PAGE_SIZE,
             "after": None,
             "filterBy": {"status": ["OPEN", "IN_PROGRESS"]},
         }
-        with httpx.Client(
-            base_url=self.config("wiz_api_url"),
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=60.0,
-        ) as client:
+        client = self._rest_client(
+            base_url_key="wiz_api_url", headers={"Authorization": f"Bearer {token}"}
+        )
+        with client:
             while True:
                 variables["after"] = after
                 resp = client.post("", json={"query": _ISSUES_QUERY, "variables": variables})

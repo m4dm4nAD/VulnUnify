@@ -28,7 +28,7 @@ def login(body: LoginIn, response: Response, db: DbSession = Depends(get_db)):
         value=token,
         httponly=True,
         samesite="lax",
-        secure=settings.session_cookie_secure,
+        secure=settings.cookie_secure,
         max_age=settings.session_ttl_hours * 3600,
         path="/",
     )

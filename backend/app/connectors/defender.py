@@ -63,9 +63,6 @@ class DefenderForCloudConnector(BaseConnector):
                     placeholder="pwsh"),
     ]
 
-    def is_configured(self) -> bool:
-        return bool(self.config("defender_subscription_id"))
-
     def fetch(self) -> list[NormalizedFinding]:
         script = _PWSH_SCRIPT.format(subscription_id=self.config("defender_subscription_id"))
         pwsh = self.config("defender_pwsh_path") or "pwsh"

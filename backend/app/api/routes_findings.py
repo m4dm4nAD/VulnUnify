@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, func, select, true
 from sqlalchemy.orm import Session, joinedload
 
-from backend.app.api.deps import require_security, require_user
+from backend.app.api.deps import SECURITY_ROLES, require_security, require_user
 from backend.app.db import get_db
 from backend.app.models.asset import Asset
 from backend.app.models.base import utcnow
@@ -29,7 +29,6 @@ from backend.app.services.lifecycle import apply_lifecycle
 router = APIRouter(prefix="/api", tags=["findings"])
 
 _SUPPRESSED = ("false_positive", "accepted_risk", "snoozed")
-_SECURITY_ROLES = ("security_admin", "security_user")
 _LOADS = (joinedload(Finding.asset), joinedload(Finding.assigned_user))
 
 # Rank used so the default sort puts critical findings first.
@@ -52,7 +51,7 @@ _SORT_COLS = {
 def _scope(actor: User):
     """Row-level scope: only the security team sees everything; every other role
     (dev, or any unknown/future role) is restricted to findings assigned to them."""
-    if actor.role in _SECURITY_ROLES:
+    if actor.role in SECURITY_ROLES:
         return true()
     return Finding.assigned_user_id == actor.id
 
@@ -96,7 +95,7 @@ def list_findings(
         stmt = stmt.where(Finding.effective_status == effective_status)
     if triage_state:
         stmt = stmt.where(Finding.triage_state == triage_state)
-    if assigned_to is not None and actor.role in _SECURITY_ROLES:
+    if assigned_to is not None and actor.role in SECURITY_ROLES:
         stmt = stmt.where(Finding.assigned_user_id == assigned_to)
     if overdue:
         stmt = stmt.where(_overdue_clause())
@@ -116,8 +115,12 @@ def list_findings(
 
 def _load_for_actor(db: Session, finding_id: int, actor: User) -> Finding:
     finding = db.scalar(select(Finding).options(*_LOADS).where(Finding.id == finding_id))
-    # 404 (not 403) for devs out of scope, so existence isn't leaked.
-    if finding is None or (actor.role == "dev" and finding.assigned_user_id != actor.id):
+    # 404 (not 403) for out-of-scope non-security users, so existence isn't leaked.
+    # Gate on "not security" (same predicate as _scope), not "== dev", so any
+    # non-security role is confined to its own queue.
+    if finding is None or (
+        actor.role not in SECURITY_ROLES and finding.assigned_user_id != actor.id
+    ):
         raise HTTPException(404, "finding not found")
     return finding
 
@@ -190,7 +193,7 @@ def stats(db: Session = Depends(get_db), actor: User = Depends(require_user)):
         .group_by(Finding.severity)
     ).all()
 
-    if actor.role == "dev":
+    if actor.role not in SECURITY_ROLES:
         total_assets = db.scalar(
             select(func.count(func.distinct(Finding.asset_id))).where(scope)
         )

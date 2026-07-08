@@ -57,7 +57,7 @@
 
     async function loadConnectors() {
       const cs = await api("/api/connectors");
-      document.getElementById("connectors").innerHTML = cs.map(c => {
+      renderRows("connectors", cs, c => {
         const cls = !c.configured ? "off" : c.last_status === "error" ? "err"
                   : c.last_status === "skipped" ? "skip" : "ok";
         return `<tr><td>${esc(c.name)}</td><td>${esc(c.category)}</td>
@@ -66,11 +66,19 @@
           <td title="${esc(c.last_error || '')}"><span class="dot ${cls}"></span>${esc(c.last_status || "never run")}</td>
           <td>${c.last_findings_count ?? "—"}</td>
           <td><div class="row-actions">
-            ${isAdmin() ? `<button class="mini" onclick="openConfig('${esc(c.name)}')">Configure</button>` : ""}
-            <button class="mini" onclick="syncOne('${esc(c.name)}', this)">Sync</button>
+            ${isAdmin() ? `<button class="mini" data-act="config" data-name="${esc(c.name)}">Configure</button>` : ""}
+            <button class="mini" data-act="sync" data-name="${esc(c.name)}">Sync</button>
           </div></td></tr>`;
-      }).join("");
+      }, { colspan: 7, empty: "No connectors registered." });
     }
+
+    // Delegated row actions (avoids inline onclick with interpolated names).
+    document.getElementById("connectors").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      if (btn.dataset.act === "config") openConfig(btn.dataset.name);
+      else if (btn.dataset.act === "sync") syncOne(btn.dataset.name, btn);
+    });
 
     // ---- settings (scheduler + SLA) ----
     async function loadSettings() {
@@ -94,7 +102,7 @@
           ${card(sc.enabled ? "Enabled" : "Disabled", "Scheduler")}
           ${card(sc.interval_minutes + " min", "Interval")}
           ${card(sc.running ? "Yes" : "No", "Running")}
-          ${card(sc.next_run_at ? new Date(sc.next_run_at).toLocaleString() : "—", "Next run")}</div>`;
+          ${card(fmtDate(sc.next_run_at), "Next run")}</div>`;
       }
 
       const slaEl = document.getElementById("sla");
@@ -113,8 +121,7 @@
     async function saveSchedule() {
       const v = parseInt(document.getElementById("schInterval").value, 10);
       document.getElementById("schMsg").textContent = "Saving…";
-      await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sync_interval_minutes: isNaN(v) ? 0 : v }) });
+      await api("/api/settings", { method: "PUT", json: { sync_interval_minutes: isNaN(v) ? 0 : v } });
       loadSettings();
     }
     async function saveSla() {
@@ -124,8 +131,7 @@
         body["sla_" + k + "_days"] = isNaN(v) ? 0 : v;
       });
       document.getElementById("slaMsg").textContent = "Saving… (recomputing SLAs)";
-      await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body) });
+      await api("/api/settings", { method: "PUT", json: body });
       loadSettings();
     }
 
@@ -154,8 +160,7 @@
       });
       const btn = document.getElementById("cfgSave"); btn.disabled = true; btn.textContent = "Saving…";
       try {
-        await api(`/api/connectors/${cfgState.name}/config`, { method: "PUT",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values }) });
+        await api(`/api/connectors/${cfgState.name}/config`, { method: "PUT", json: { values } });
       } finally { btn.disabled = false; btn.textContent = "Save"; }
       closeConfig(); loadConnectors();
     }

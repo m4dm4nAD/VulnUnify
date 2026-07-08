@@ -6,8 +6,12 @@ from sqlalchemy.orm import Session as DbSession
 
 from backend.app.config import settings
 from backend.app.db import get_db
-from backend.app.models.user import User
+from backend.app.models.user import User, UserRole
 from backend.app.services import auth
+
+# Single source of truth for "is this the security team?" — the two security
+# roles. Imported wherever a role check is needed so the set can't drift.
+SECURITY_ROLES = {UserRole.SECURITY_ADMIN.value, UserRole.SECURITY_USER.value}
 
 
 def get_current_user(request: Request, db: DbSession = Depends(get_db)) -> User | None:
@@ -23,9 +27,6 @@ def require_user(user: User | None = Depends(get_current_user)) -> User:
     return user
 
 
-SECURITY_ROLES = {"security_admin", "security_user"}
-
-
 def require_security(user: User = Depends(require_user)) -> User:
     """Security team: sees all findings/connectors, assigns work. Excludes devs."""
     if user.role not in SECURITY_ROLES:
@@ -35,7 +36,7 @@ def require_security(user: User = Depends(require_user)) -> User:
 
 def require_security_admin(user: User = Depends(require_user)) -> User:
     """Full access: user management + connector credentials."""
-    if user.role != "security_admin":
+    if user.role != UserRole.SECURITY_ADMIN.value:
         raise HTTPException(status_code=403, detail="security_admin role required")
     return user
 

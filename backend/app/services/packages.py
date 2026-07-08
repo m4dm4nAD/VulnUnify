@@ -3,8 +3,8 @@ plus the self-service scan history (what devs searched via /scan)."""
 from __future__ import annotations
 
 import structlog
-from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select
+from sqlalchemy.orm import joinedload
 
 from backend.app.db import SessionLocal
 from backend.app.models.base import utcnow
@@ -83,15 +83,6 @@ def delete_package(package_id: int) -> bool:
         return True
 
 
-def clear_source(source: str) -> int:
-    with SessionLocal() as db:
-        result = db.execute(
-            sql_delete(WatchedPackage).where(WatchedPackage.source == source)
-        )
-        db.commit()
-        return result.rowcount or 0
-
-
 # --- self-service scan history ---
 
 def record_scan(
@@ -140,7 +131,10 @@ def list_scans(limit: int = 50) -> list[dict]:
     """Most-recent scans first, with the searching user's name resolved."""
     with SessionLocal() as db:
         scans = db.scalars(
-            select(PackageScan).order_by(PackageScan.created_at.desc()).limit(limit)
+            select(PackageScan)
+            .options(joinedload(PackageScan.user))  # avoid an N+1 on s.user.username
+            .order_by(PackageScan.created_at.desc())
+            .limit(limit)
         ).all()
         return [
             {

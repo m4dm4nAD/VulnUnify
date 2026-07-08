@@ -44,24 +44,15 @@ class TenableConnector(BaseConnector):
                     placeholder="https://cloud.tenable.com"),
     ]
 
-    def is_configured(self) -> bool:
-        return bool(self.config("tenable_access_key") and self.config("tenable_secret_key"))
-
-    def _client(self) -> httpx.Client:
-        return httpx.Client(
-            base_url=self.config("tenable_base_url"),
-            headers={
-                "X-ApiKeys": (
-                    f"accessKey={self.config('tenable_access_key')};"
-                    f"secretKey={self.config('tenable_secret_key')}"
-                ),
-                "Accept": "application/json",
-            },
-            timeout=60.0,
-        )
-
     def fetch(self) -> list[NormalizedFinding]:
-        with self._client() as client:
+        headers = {
+            "X-ApiKeys": (
+                f"accessKey={self.config('tenable_access_key')};"
+                f"secretKey={self.config('tenable_secret_key')}"
+            ),
+            "Accept": "application/json",
+        }
+        with self._rest_client(base_url_key="tenable_base_url", headers=headers) as client:
             export_uuid = self._request_export(client)
             chunks = self._wait_for_chunks(client, export_uuid)
             findings: list[NormalizedFinding] = []

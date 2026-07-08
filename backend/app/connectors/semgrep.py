@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import re
 
-import httpx
-
 from backend.app.connectors.base import (
     BaseConnector,
     ConfigField,
@@ -28,6 +26,7 @@ _STATE_MAP = {
     "ignored": FindingStatus.SUPPRESSED,
 }
 _CWE_RE = re.compile(r"CWE-\d+", re.IGNORECASE)
+_PAGE_SIZE = 100
 
 
 class SemgrepConnector(BaseConnector):
@@ -40,27 +39,23 @@ class SemgrepConnector(BaseConnector):
                     placeholder="https://semgrep.dev/api"),
     ]
 
-    def is_configured(self) -> bool:
-        return bool(self.config("semgrep_app_token") and self.config("semgrep_deployment_slug"))
-
     def fetch(self) -> list[NormalizedFinding]:
         findings: list[NormalizedFinding] = []
         page = 0
-        page_size = 100
         url = f"/api/v1/deployments/{self.config('semgrep_deployment_slug')}/findings"
-        with httpx.Client(
-            base_url=self.config("semgrep_base_url"),
+        client = self._rest_client(
+            base_url_key="semgrep_base_url",
             headers={"Authorization": f"Bearer {self.config('semgrep_app_token')}"},
-            timeout=60.0,
-        ) as client:
+        )
+        with client:
             while True:
-                resp = client.get(url, params={"page": page, "page_size": page_size})
+                resp = client.get(url, params={"page": page, "page_size": _PAGE_SIZE})
                 resp.raise_for_status()
                 batch = resp.json().get("findings", [])
                 if not batch:
                     break
                 findings.extend(self._normalize(f) for f in batch)
-                if len(batch) < page_size:
+                if len(batch) < _PAGE_SIZE:
                     break
                 page += 1
         return findings

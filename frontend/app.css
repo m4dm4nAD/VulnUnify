@@ -1,6 +1,8 @@
 :root { --bg:#0f1115; --panel:#181b22; --line:#262b36; --txt:#e6e9ef; --muted:#8b93a7;
         --crit:#e5484d; --high:#f76808; --med:#f5a623; --low:#3b82f6; --info:#6b7280;
-        --green:#22c55e; }
+        --green:#22c55e;
+        --accent:#60a5fa;   /* links, focus/hover highlight */
+        --btn:#2563eb;      /* primary button fill */ }
 * { box-sizing:border-box; }
 body { margin:0; font:14px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--txt); }
 
@@ -12,7 +14,7 @@ nav a { color:var(--muted); text-decoration:none; padding:6px 12px; border-radiu
         font-weight:600; }
 nav a:hover { color:var(--txt); }
 nav a.active { color:var(--txt); background:var(--panel); border:1px solid var(--line); }
-header > button { margin-left:12px; background:#2563eb; color:#fff; border:0; padding:8px 14px;
+header > button { margin-left:12px; background:var(--btn); color:#fff; border:0; padding:8px 14px;
                   border-radius:6px; cursor:pointer; font-weight:600; }
 .authbox { margin-left:auto; display:flex; align-items:center; gap:10px; }
 [data-gate] { display:none !important; }   /* role-gated; revealed by app.js */
@@ -28,9 +30,9 @@ h2 { font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacin
 .card.alert .n { color:var(--crit); }
 .card .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
 .card.clickable { cursor:pointer; transition:border-color .12s, background .12s, transform .12s, box-shadow .12s; }
-.card.clickable:hover { border-color:#60a5fa; background:#202a3a;
-  box-shadow:0 0 0 1px #60a5fa, 0 2px 8px rgba(0,0,0,.35); transform:translateY(-1px); }
-.card.active { border-color:var(--accent,#60a5fa); box-shadow:inset 0 0 0 1px var(--accent,#60a5fa); }
+.card.clickable:hover { border-color:var(--accent); background:#202a3a;
+  box-shadow:0 0 0 1px var(--accent), 0 2px 8px rgba(0,0,0,.35); transform:translateY(-1px); }
+.card.active { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
 
 .pager { display:flex; align-items:center; gap:10px; margin-top:10px; }
 .pager .spacer { flex:1; }
@@ -60,11 +62,11 @@ th.sortable:hover, th.sortable.active { color:var(--txt); }
 .sev-medium{background:var(--med);color:#000} .sev-low{background:var(--low);color:#fff}
 .sev-info{background:var(--info);color:#fff}
 .st-open{background:#1f2937;color:#cbd5e1} .st-resolved{background:var(--green);color:#04210f}
-.st-false_positive,.st-accepted_risk,.st-snoozed{background:#374151;color:#9ca3af}
+.st-false_positive,.st-accepted_risk,.st-snoozed,.st-suppressed{background:#374151;color:#9ca3af}
 .sla{background:var(--crit);color:#fff;margin-left:6px}
 
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
-.ok{background:#22c55e}.off{background:#4b5563}.err{background:var(--crit)}.skip{background:var(--med)}
+.ok{background:var(--green)}.off{background:#4b5563}.err{background:var(--crit)}.skip{background:var(--med)}
 
 select,input{background:#0c0e13;color:var(--txt);border:1px solid var(--line);
              border-radius:6px;padding:6px 8px}
@@ -94,11 +96,11 @@ button.mini:hover{background:#323c4d}
 .src{margin-left:auto;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
 .modal-actions{display:flex;gap:8px;margin-top:18px;align-items:center}
 .modal-actions .spacer{margin-left:auto}
-.modal-actions button[data-primary]{background:#2563eb;color:#fff;border:0}
+.modal-actions button[data-primary]{background:var(--btn);color:#fff;border:0}
 
-.link{color:#60a5fa;cursor:pointer}
+.link{color:var(--accent);cursor:pointer}
 .link:hover{text-decoration:underline}
-.ok-note{color:#22c55e;font-size:14px;margin:6px 0}
+.ok-note{color:var(--green);font-size:14px;margin:6px 0}
 .modal.detail{width:680px}
 .dpills{display:flex;gap:8px;align-items:center;margin:6px 0 14px;flex-wrap:wrap}
 .dsec{display:flex;flex-direction:column;margin-bottom:6px}
@@ -129,6 +131,6 @@ body.login{display:flex;align-items:center;justify-content:center;min-height:100
 .login-card h1{font-size:20px;margin:0 0 18px;text-align:center}
 .login-card form{display:flex;flex-direction:column;gap:10px}
 .login-card input{padding:10px}
-.login-card button{background:#2563eb;color:#fff;border:0;padding:10px;border-radius:6px;
+.login-card button{background:var(--btn);color:#fff;border:0;padding:10px;border-radius:6px;
                    cursor:pointer;font-weight:600}
 .err-msg{color:var(--crit);font-size:13px;min-height:16px;text-align:center}

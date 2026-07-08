@@ -22,25 +22,57 @@ function toast(message, type = "error") {
 }
 window.toast = toast;
 
-async function api(path, opts = {}) {
-  const res = await fetch(path, { credentials: "same-origin", ...opts });
-  if (res.status === 401) {
-    if (!location.pathname.endsWith("/login.html")) {
-      location.href = "/login.html?next=" + encodeURIComponent(location.pathname);
-    }
-    throw new Error("unauthorized");
+// Normalize opts: `json:` auto-sets the Content-Type + serializes the body, so
+// callers stop hand-rolling headers/JSON.stringify at every call site.
+function _prep(opts) {
+  if (opts.json === undefined) return opts;
+  const { json, headers, ...rest } = opts;
+  return { ...rest, headers: { "Content-Type": "application/json", ...(headers || {}) },
+           body: JSON.stringify(json) };
+}
+
+// Pull a human-readable message out of a FastAPI error body (detail can be a
+// string, or a list of validation errors).
+function detailOf(body, fallback) {
+  const d = body && body.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d) && d.length) return d.map(e => e.msg || JSON.stringify(e)).join("; ");
+  return fallback;
+}
+window.detailOf = detailOf;
+
+// Redirect to login on 401. Shared by api() and apiTry().
+function _handle401() {
+  if (!location.pathname.endsWith("/login.html")) {
+    location.href = "/login.html?next=" + encodeURIComponent(location.pathname);
   }
+}
+
+async function api(path, opts = {}) {
+  opts = _prep(opts);
+  const res = await fetch(path, { credentials: "same-origin", ...opts });
+  if (res.status === 401) { _handle401(); throw new Error("unauthorized"); }
   if (!res.ok) {
     let detail;
-    try {
-      const body = await res.json();
-      detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body);
-    } catch { detail = res.statusText; }
+    try { detail = detailOf(await res.json(), res.statusText); }
+    catch { detail = res.statusText; }
     toast(`${(opts.method || "GET").toUpperCase()} ${path} failed (${res.status}): ${detail}`);
     throw new Error(detail);
   }
   return res.json();
 }
+
+// Like api(), but never throws/toasts on a non-2xx — returns {ok, status, body}
+// so callers can branch on status (e.g. 409) and show their own message. Still
+// redirects on 401. Use for writes that need status-aware handling.
+async function apiTry(path, opts = {}) {
+  const res = await fetch(path, { credentials: "same-origin", ..._prep(opts) });
+  if (res.status === 401) { _handle401(); return { ok: false, status: 401, body: null }; }
+  let body = null;
+  try { body = await res.json(); } catch { /* empty/204 */ }
+  return { ok: res.ok, status: res.status, body };
+}
+window.api = api; window.apiTry = apiTry;
 
 // Shared view helpers used across pages.
 const card = (n, l) => `<div class="card"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`;
@@ -60,6 +92,22 @@ async function syncAll(btn, onDone) {
   }
 }
 window.card = card; window.fmtDate = fmtDate; window.syncAll = syncAll;
+
+// Render table rows into a <tbody>, with a shared empty-state fallback and an
+// optional count badge. Replaces the load→map→"|| empty row" idiom repeated
+// across every page.
+function renderRows(tbodyId, items, rowFn, { colspan = 1, empty = "Nothing here yet.", countEl } = {}) {
+  const el = document.getElementById(tbodyId);
+  if (!el) return;
+  el.innerHTML = items.length
+    ? items.map(rowFn).join("")
+    : `<tr><td colspan="${colspan}" class="muted">${esc(empty)}</td></tr>`;
+  if (countEl) {
+    const c = document.getElementById(countEl);
+    if (c) c.textContent = items.length ? `— ${items.length}` : "";
+  }
+}
+window.renderRows = renderRows;
 
 // Single source of truth for the top nav (rendered into <nav id="mainnav">).
 const NAV = [
@@ -94,15 +142,26 @@ function applyRoleVisibility(me) {
   if (admin) document.querySelectorAll('[data-gate="admin"]').forEach(e => e.removeAttribute("data-gate"));
 }
 
+function _roleAllows(me, level) {
+  return level === "admin" ? me.role === "security_admin"
+    : level === "security" ? me.role !== "dev"
+      : true;
+}
+
 // Guard a whole page: redirect non-permitted users to the overview.
 window.requireRole = async (level) => {
   const me = await window.mePromise;
   if (!me) { location.href = "/login.html"; return new Promise(() => {}); }  // auth failed
-  const ok = level === "admin" ? me.role === "security_admin"
-    : level === "security" ? me.role !== "dev"
-      : true;
-  if (!ok) { location.href = "/"; return new Promise(() => {}); }  // never resolves; page unloads
+  if (!_roleAllows(me, level)) { location.href = "/"; return new Promise(() => {}); }  // page unloads
   return me;
+};
+
+// Resolve the current user for page init. Returns `me` (so pages can branch on
+// role for feature-gating), or null if auth failed — in which case app.js has
+// already redirected, so callers should just bail.
+window.initPage = async () => {
+  const me = await window.mePromise;
+  return me || null;
 };
 
 async function initAuthHeader() {

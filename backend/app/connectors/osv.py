@@ -26,10 +26,7 @@ _PURL_TYPE = {"npm": "npm", "PyPI": "pypi", "Go": "golang", "crates.io": "cargo"
 class OsvConnector(BaseConnector):
     name = "osv"
     category = FindingCategory.SUPPLY_CHAIN
-    config_fields = []  # public API, no credentials
-
-    def is_configured(self) -> bool:
-        return True  # always available; emits nothing if the watchlist is empty
+    config_fields = []  # public API, no credentials → always configured (base default)
 
     def fetch(self) -> list[NormalizedFinding]:
         packages = self._watched_packages()
@@ -37,7 +34,7 @@ class OsvConnector(BaseConnector):
             return []
         findings: list[NormalizedFinding] = []
         detail_cache: dict[str, dict] = {}
-        with httpx.Client(timeout=60.0) as client:
+        with self._rest_client() as client:
             for batch in _chunks(packages, _BATCH_SIZE):
                 queries = [
                     {"package": {"ecosystem": p["ecosystem"], "name": p["name"]},

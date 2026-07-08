@@ -8,13 +8,12 @@ by whom, when) so the security team can review scan activity via `/scans`.
 """
 from __future__ import annotations
 
-import json
-
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.app.api.deps import require_security, require_user
+from backend.app.api.errors import parse_400
 from backend.app.models.user import User
 from backend.app.schemas.package import (
     PackageImportIn,
@@ -34,12 +33,8 @@ router = APIRouter(prefix="/api/packages", tags=["packages"])
 @router.post("/scan", response_model=PackageScanOut)
 def scan_packages(body: PackageScanIn, user: User = Depends(require_user)):
     """Parse an uploaded file, check its packages against OSV, and record the search."""
-    try:
+    with parse_400("file"):
         parsed = parse_manifest(body.filename, body.content)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    except json.JSONDecodeError as exc:
-        raise HTTPException(400, f"invalid file (expected JSON): {exc}")
     try:
         results = osv_scan.scan(parsed)
     except httpx.HTTPError as exc:
@@ -62,7 +57,9 @@ def scan_packages(body: PackageScanIn, user: User = Depends(require_user)):
 
 
 @router.get("/scans", response_model=list[PackageScanRecordOut])
-def list_scans(limit: int = 50, _: User = Depends(require_security)):
+def list_scans(
+    limit: int = Query(50, ge=1, le=500), _: User = Depends(require_security)
+):
     """History of self-service scans: what was searched, by whom, when."""
     return packages.list_scans(limit=limit)
 
@@ -70,12 +67,8 @@ def list_scans(limit: int = 50, _: User = Depends(require_security)):
 @router.post("/import")
 def import_packages(body: PackageImportIn, _: User = Depends(require_security)):
     """Parse a manifest/lockfile and add its packages to the watchlist."""
-    try:
+    with parse_400("manifest"):
         return packages.import_manifest(body.filename, body.content, body.source)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    except json.JSONDecodeError as exc:
-        raise HTTPException(400, f"invalid manifest JSON: {exc}")
 
 
 @router.get("", response_model=list[WatchedPackageOut])

@@ -7,8 +7,6 @@ Docs: https://automation.trendmicro.com/xdr/api-v3
 """
 from __future__ import annotations
 
-import httpx
-
 from backend.app.connectors.base import (
     BaseConnector,
     ConfigField,
@@ -26,6 +24,7 @@ _RISK_MAP = {
     "MEDIUM": Severity.MEDIUM,
     "LOW": Severity.LOW,
 }
+_PAGE_SIZE = 200
 
 
 class TrendConnector(BaseConnector):
@@ -37,19 +36,16 @@ class TrendConnector(BaseConnector):
                     placeholder="https://api.xdr.trendmicro.com"),
     ]
 
-    def is_configured(self) -> bool:
-        return bool(self.config("trend_api_key"))
-
     def fetch(self) -> list[NormalizedFinding]:
         findings: list[NormalizedFinding] = []
-        with httpx.Client(
-            base_url=self.config("trend_base_url"),
+        client = self._rest_client(
+            base_url_key="trend_base_url",
             headers={"Authorization": f"Bearer {self.config('trend_api_key')}"},
-            timeout=60.0,
-        ) as client:
+        )
+        with client:
             # First page relative; subsequent pages are absolute nextLink URLs.
             url = "/beta/cloudPosture/checks"
-            params = {"filter": "status eq 'FAILURE'", "top": 200}
+            params = {"filter": "status eq 'FAILURE'", "top": _PAGE_SIZE}
             while url:
                 resp = client.get(url, params=params)
                 resp.raise_for_status()

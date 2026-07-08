@@ -27,6 +27,16 @@ def _read_key(path: str) -> bytes:
 def _load_key() -> bytes:
     if settings.secret_key:
         return settings.secret_key.encode()
+    # In production, refuse to silently generate an ephemeral key: it would be
+    # lost on the next container rebuild and make every stored credential
+    # undecryptable. Force operators to set a stable, backed-up SECRET_KEY.
+    if settings.is_production:
+        raise RuntimeError(
+            "SECRET_KEY must be set in production (ENVIRONMENT=production). "
+            "Generate one with: "
+            'python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"'
+        )
     path = os.path.abspath(_KEY_FILE)
     if os.path.exists(path):
         return _read_key(path)

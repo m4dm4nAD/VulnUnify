@@ -89,10 +89,17 @@
   <script>
     // api() and esc() come from /app.js
     const SEV = ["critical", "high", "medium", "low", "info"];
-    const SEV_COLOR = {critical:"#e5484d", high:"#f76808", medium:"#f5a623", low:"#3b82f6", info:"#6b7280"};
+    // Single source of truth for colors: read the CSS custom properties so the
+    // charts always match the pills/palette in app.css.
+    const cssVar = (name, fallback) =>
+      getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+    const SEV_COLOR = { critical: cssVar("--crit"), high: cssVar("--high"),
+      medium: cssVar("--med"), low: cssVar("--low"), info: cssVar("--info") };
+    const C = { accent: cssVar("--accent"), green: cssVar("--green"), crit: cssVar("--crit"),
+      low: cssVar("--low"), info: cssVar("--info"), teal: "#14b8a6" };
     if (window.Chart) {   // chart.umd.min.js may fail to load; don't kill the page
-      Chart.defaults.color = "#8b93a7";
-      Chart.defaults.borderColor = "#262b36";
+      Chart.defaults.color = cssVar("--muted");
+      Chart.defaults.borderColor = cssVar("--line");
       Chart.defaults.font.family = "system-ui, sans-serif";
       Chart.defaults.plugins.legend.labels.boxWidth = 12;
     }
@@ -122,7 +129,7 @@
         type: "doughnut",
         data: { labels: ["Open", "Resolved", "Suppressed"],
           datasets: [{ data: [s.open_findings, s.resolved_findings, s.suppressed_findings],
-            backgroundColor: ["#60a5fa", "#22c55e", "#6b7280"], borderWidth: 0 }] },
+            backgroundColor: [C.accent, C.green, C.info], borderWidth: 0 }] },
         options: { responsive: true, maintainAspectRatio: false, cutout: "62%",
           plugins: { legend: { position: "right" } } },
       });
@@ -132,8 +139,8 @@
         type: "bar",
         data: { labels: SEV.map(x => x[0].toUpperCase() + x.slice(1)),
           datasets: [
-            { label: "Within SLA", data: within, backgroundColor: "#22c55e", borderRadius: 3 },
-            { label: "SLA breached", data: breached, backgroundColor: "#e5484d", borderRadius: 3 },
+            { label: "Within SLA", data: within, backgroundColor: C.green, borderRadius: 3 },
+            { label: "SLA breached", data: breached, backgroundColor: C.crit, borderRadius: 3 },
           ] },
         options: { responsive: true, maintainAspectRatio: false,
           plugins: { legend: { position: "bottom" } },
@@ -144,14 +151,14 @@
       draw("categoryChart", {
         type: "bar",
         data: { labels: cat.map(([k]) => k),
-          datasets: [{ data: cat.map(([, v]) => v), backgroundColor: "#3b82f6", borderRadius: 3 }] },
+          datasets: [{ data: cat.map(([, v]) => v), backgroundColor: C.low, borderRadius: 3 }] },
         options: { ...baseBar, scales: { x: noGrid, y: { beginAtZero: true, ticks: { precision: 0 } } } },
       });
       const src = Object.entries(bySrc).sort((a, b) => b[1] - a[1]);
       draw("sourceChart", {
         type: "bar",
         data: { labels: src.map(([k]) => k),
-          datasets: [{ data: src.map(([, v]) => v), backgroundColor: "#14b8a6", borderRadius: 3 }] },
+          datasets: [{ data: src.map(([, v]) => v), backgroundColor: C.teal, borderRadius: 3 }] },
         options: { ...baseBar, indexAxis: "y",
           scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: noGrid } },
       });

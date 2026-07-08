@@ -17,5 +17,8 @@ def get_db() -> Iterator[Session]:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()  # discard a half-applied transaction before the pool reuses it
+        raise
     finally:
         db.close()

@@ -7,18 +7,29 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # Deployment environment. "production" turns on secure-by-default behavior
+    # (secure cookies + same-origin checks) and requires an explicit SECRET_KEY.
+    # Anything else (the default) is treated as development.
+    environment: str = "development"
+
     database_url: str = "postgresql+psycopg://vulnunify:vulnunify@localhost:5432/vulnunify"
     log_level: str = "INFO"
 
     # Fernet key used to encrypt connector credentials at rest. Generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     # If unset, a dev key is generated and persisted to .vulnunify_secret_key.
+    # In production a missing key is a hard error (see services/crypto.py).
     secret_key: str = ""
+
+    # Comma-separated browser origins allowed to call the API cross-origin.
+    # Empty (default) = same-origin only; no CORS middleware is installed.
+    cors_allow_origins: str = ""
 
     # --- Auth / sessions ---
     session_cookie_name: str = "vulnunify_session"
     session_ttl_hours: int = 12
-    session_cookie_secure: bool = False  # set True when serving over HTTPS
+    # None = auto (secure in production, off in dev). Set True/False to override.
+    session_cookie_secure: bool | None = None
     # Bootstrap admin, created on first startup when no users exist. If the
     # password is blank, a random one is generated and logged once.
     initial_admin_username: str = "admin"
@@ -49,6 +60,7 @@ class Settings(BaseSettings):
     wiz_client_secret: str = ""
     wiz_api_url: str = "https://api.us1.app.wiz.io/graphql"
     wiz_auth_url: str = "https://auth.app.wiz.io/oauth/token"
+    wiz_auth_audience: str = "wiz-api"   # older tenants may need "beyond-api"
 
     # --- Trend ---
     trend_api_key: str = ""
@@ -78,6 +90,22 @@ class Settings(BaseSettings):
     snyk_token: str = ""
     snyk_org_id: str = ""
     snyk_base_url: str = "https://api.snyk.io"
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() in {"production", "prod"}
+
+    @property
+    def cookie_secure(self) -> bool:
+        """Effective Secure flag for the session cookie: explicit override wins,
+        else secure cookies in production only."""
+        if self.session_cookie_secure is not None:
+            return self.session_cookie_secure
+        return self.is_production
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
 
 settings = Settings()
