@@ -8,12 +8,7 @@
   <script src="/app.js"></script>
 </head>
 <body>
-  <header>
-    <h1>🛡️ VulnUnify</h1>
-    <nav id="mainnav"></nav>
-    <span id="authBox" class="authbox"></span>
-  </header>
-  <main>
+  <div id="view" data-page="users" data-title="Users" data-subtitle="Accounts and role management">
     <section>
       <h2>Add user</h2>
       <div class="filters">
@@ -36,7 +31,7 @@
         <th>Created</th><th></th></tr></thead>
         <tbody id="users"></tbody></table>
     </section>
-  </main>
+  </div>
 
   <script>
     const ROLES = ["dev", "security_user", "security_admin"];

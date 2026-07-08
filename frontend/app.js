@@ -109,25 +109,41 @@ function renderRows(tbodyId, items, rowFn, { colspan = 1, empty = "Nothing here 
 }
 window.renderRows = renderRows;
 
-// Single source of truth for the top nav (rendered into <nav id="mainnav">).
+// ---------------- Shell (sidebar + topbar), injected once ----------------
+
+const ICONS = {
+  shield: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5 4.5 5.5v6c0 4.6 3.2 7.9 7.5 9.4 4.3-1.5 7.5-4.8 7.5-9.4v-6L12 2.5Z" fill="currentColor" opacity=".9"/><path d="m8.6 12 2.3 2.3 4.5-4.6" stroke="var(--accent-ink)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  overview: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  connectors: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="7" cy="7" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="17" r="1.4" fill="currentColor" stroke="none"/></svg>',
+  packages: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2.5 4 6.5v9L12 21l8-5.5v-9L12 2.5Z"/><path d="M4 6.5 12 11l8-4.5M12 11v10"/></svg>',
+  containers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>',
+  users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.2a3 3 0 0 1 0 5.6M18.5 20a5.5 5.5 0 0 0-3-4.9"/></svg>',
+  status: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 13v6M9 9v10M14 5v14M19 11v8"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10Z"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4.5v-2M12 21.5v-2M19.5 12h2M2.5 12h2M17.7 6.3l1.4-1.4M4.9 19.1l1.4-1.4M17.7 17.7l1.4 1.4M4.9 4.9l1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg>',
+  logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 12H4M11 8l-4 4 4 4M14 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/></svg>',
+};
+
+// Single source of truth for navigation, grouped for the sidebar. `key` matches
+// each page's data-page; `gate` hides items until the role allows.
 const NAV = [
-  { href: "/", label: "Overview" },
-  { href: "/connectors.html", label: "Connectors & Settings", gate: "security" },
-  { href: "/packages.html", label: "Packages" },
-  { href: "/containers.html", label: "Containers", gate: "security" },
-  { href: "/status.html", label: "Status", gate: "security" },
-  { href: "/users.html", label: "Users", gate: "admin" },
+  { title: null, items: [
+    { key: "overview", href: "/", label: "Overview", icon: "overview" },
+  ]},
+  { title: "Sources", items: [
+    { key: "connectors", href: "/connectors.html", label: "Connectors", icon: "connectors", gate: "security" },
+    { key: "packages", href: "/packages.html", label: "Packages", icon: "packages" },
+    { key: "containers", href: "/containers.html", label: "Containers", icon: "containers", gate: "security" },
+  ]},
+  { title: "Team & System", gate: "security", items: [
+    { key: "users", href: "/users.html", label: "Users", icon: "users", gate: "admin" },
+    { key: "status", href: "/status.html", label: "Status", icon: "status", gate: "security" },
+  ]},
 ];
 
-function renderNav() {
-  const el = document.getElementById("mainnav");
-  if (!el) return;
-  const path = location.pathname;
-  el.innerHTML = NAV.map(n => {
-    const active = (n.href === "/" ? path === "/" : path === n.href) ? ' class="active"' : "";
-    const gate = n.gate ? ` data-gate="${n.gate}"` : "";   // hidden until role allows
-    return `<a href="${n.href}"${active}${gate}>${esc(n.label)}</a>`;
-  }).join("");
+function navLabel(key) {
+  for (const g of NAV) for (const it of g.items) if (it.key === key) return it.label;
+  return null;
 }
 
 // Resolves to the current user once known. Pages await this to branch on role.
@@ -157,15 +173,81 @@ window.requireRole = async (level) => {
 };
 
 // Resolve the current user for page init. Returns `me` (so pages can branch on
-// role for feature-gating), or null if auth failed — in which case app.js has
-// already redirected, so callers should just bail.
+// role for feature-gating), or null if auth failed — app.js already redirected.
 window.initPage = async () => {
   const me = await window.mePromise;
   return me || null;
 };
 
-async function initAuthHeader() {
-  renderNav();  // structure first, so applyRoleVisibility can reveal allowed links
+// Persisted light/dark toggle that overrides the OS preference in both directions.
+function wireTheme(btn) {
+  const root = document.documentElement;
+  const saved = localStorage.getItem("vu-theme");
+  if (saved) root.dataset.theme = saved;
+  const cur = () => root.dataset.theme
+    || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const paint = () => { btn.innerHTML = cur() === "dark" ? ICONS.moon : ICONS.sun; };
+  btn.onclick = () => {
+    const next = cur() === "dark" ? "light" : "dark";
+    root.dataset.theme = next; localStorage.setItem("vu-theme", next); paint();
+  };
+  paint();
+}
+
+// Build the sidebar + topbar around the page's #view content.
+function buildShell(view) {
+  const pageKey = view.dataset.page || "";
+  const title = view.dataset.title || navLabel(pageKey) || "VulnUnify";
+  const subtitle = view.dataset.subtitle || "";
+
+  const nav = NAV.map(group => {
+    const items = group.items.map(it => {
+      const active = it.key === pageKey ? " active" : "";
+      const gate = it.gate ? ` data-gate="${it.gate}"` : "";
+      return `<a class="nav-item${active}" href="${it.href}"${gate}>${ICONS[it.icon] || ""}` +
+             `<span class="label">${esc(it.label)}</span></a>`;
+    }).join("");
+    const gg = group.gate ? ` data-gate="${group.gate}"` : "";
+    const heading = group.title ? `<div class="nav-group"${gg}>${esc(group.title)}</div>` : "";
+    return heading + items;
+  }).join("");
+
+  const shell = document.createElement("div");
+  shell.className = "app";
+  shell.innerHTML =
+    `<aside class="sidebar">
+       <div class="brand"><span class="mark" aria-hidden="true">${ICONS.shield}</span>
+         <span class="name">VulnUnify</span></div>
+       <nav class="nav" aria-label="Primary">${nav}</nav>
+       <div class="side-user" id="sideUser"></div>
+     </aside>
+     <div class="main">
+       <header class="topbar">
+         <div class="titleblock"><h1>${esc(title)}</h1>${subtitle ? `<p id="pageSubtitle">${esc(subtitle)}</p>` : `<p id="pageSubtitle" hidden></p>`}</div>
+         <div class="spacer"></div>
+         <div class="topbar-actions" id="topbarActions">
+           <button class="icon-btn" id="themeToggle" title="Toggle theme" aria-label="Toggle theme"></button>
+         </div>
+       </header>
+       <div class="content" id="content"></div>
+     </div>`;
+
+  const content = shell.querySelector("#content");
+  const topActions = shell.querySelector("#topbarActions");
+  const themeBtn = shell.querySelector("#themeToggle");
+
+  // Page-declared topbar buttons move ahead of the theme toggle.
+  const actions = view.querySelector("[data-actions]");
+  if (actions) {
+    Array.from(actions.children).forEach(c => topActions.insertBefore(c, themeBtn));
+    actions.remove();
+  }
+  while (view.firstChild) content.appendChild(view.firstChild);
+  view.replaceWith(shell);
+  wireTheme(themeBtn);
+}
+
+async function loadMe() {
   let me;
   // On 401, api() already redirected. On any other failure, resolve null so
   // gated pages react (and don't hang forever awaiting mePromise).
@@ -174,14 +256,21 @@ async function initAuthHeader() {
   _meResolve(me);
   applyRoleVisibility(me);
 
-  const el = document.getElementById("authBox");
+  const el = document.getElementById("sideUser");
   if (!el) return;
-  el.innerHTML = `<span class="muted" style="font-size:12px">${esc(me.username)} · ${esc(me.role)}</span>
-    <button class="mini" id="logoutBtn">Log out</button>`;
+  el.innerHTML =
+    `<span class="avatar">${esc(me.username.slice(0, 2).toUpperCase())}</span>
+     <span class="who"><b>${esc(me.username)}</b><span>${esc(me.role)}</span></span>
+     <button class="icon-btn logout" id="logoutBtn" title="Log out" aria-label="Log out">${ICONS.logout}</button>`;
   document.getElementById("logoutBtn").onclick = async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
     location.href = "/login.html";
   };
 }
 
-document.addEventListener("DOMContentLoaded", initAuthHeader);
+document.addEventListener("DOMContentLoaded", () => {
+  const view = document.getElementById("view");
+  if (!view) return;   // e.g. the login page has no shell
+  buildShell(view);
+  loadMe();
+});

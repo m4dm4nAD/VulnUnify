@@ -8,12 +8,7 @@
   <script src="/app.js"></script>
 </head>
 <body>
-  <header>
-    <h1>🛡️ VulnUnify</h1>
-    <nav id="mainnav"></nav>
-    <span id="authBox" class="authbox"></span>
-  </header>
-  <main>
+  <div id="view" data-page="containers" data-title="Containers" data-subtitle="Container image vulnerability findings">
     <section>
       <h2>Container image scanning</h2>
       <p class="muted">Two ways to bring in image vulnerabilities, both landing as
@@ -40,7 +35,7 @@
       <table><thead><tr><th>Image</th><th>Open findings</th><th>Critical</th></tr></thead>
         <tbody id="images"></tbody></table>
     </section>
-  </main>
+  </div>
 
   <script>
     async function load() {
