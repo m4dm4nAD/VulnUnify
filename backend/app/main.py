@@ -20,6 +20,7 @@ from backend.app.api import (
     routes_findings,
     routes_lifecycle,
     routes_packages,
+    routes_scans,
     routes_settings,
     routes_sync,
     routes_users,
@@ -28,7 +29,7 @@ from backend.app.api.deps import require_security, require_user
 from backend.app.config import settings
 from backend.app.db import SessionLocal
 from backend.app.scheduler import shutdown_scheduler, start_scheduler
-from backend.app.services import errorlog
+from backend.app.services import clearwing, errorlog
 from backend.app.services.auth import seed_initial_admin
 
 # One level drives both stdlib logging and structlog, so LOG_LEVEL actually
@@ -42,6 +43,7 @@ structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(_LOG_LEV
 async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         seed_initial_admin(db)
+    clearwing.reset_stuck_scans()   # fail any scans orphaned by a previous restart
     start_scheduler()
     try:
         yield
@@ -127,6 +129,7 @@ app.include_router(routes_settings.router, dependencies=_security)
 app.include_router(routes_packages.router, dependencies=_logged_in)
 app.include_router(routes_containers.router, dependencies=_security)
 app.include_router(routes_errors.router, dependencies=_security)
+app.include_router(routes_scans.router, dependencies=_security)   # Clearwing scans (experimental)
 
 
 @app.exception_handler(Exception)

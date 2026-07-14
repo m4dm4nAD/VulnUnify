@@ -20,6 +20,28 @@ WORKDIR /app
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e .
 
+# ---- Clearwing (sourcehunt) — EXPERIMENTAL, enables real source-code scans ----
+# Installed in the SAME env as the app (the Code Scan feature imports
+# clearwing.sourcehunt.runner directly). Kept OUT of pyproject.toml so the app's
+# dependency layer stays decoupled and cacheable. Its own trailing layer isolates
+# the heavy (~1-2GB) native tree; the import smoke-check fails the build loudly if
+# resolution/compile breaks. Disable with:  --build-arg WITH_CLEARWING=0
+# git + libpcap0.8 stay in the image (repo clone at scan time / libpnet runtime);
+# the compiler + Rust toolchain are added and purged inside this one layer.
+ARG WITH_CLEARWING=1
+RUN set -eux; \
+    if [ "$WITH_CLEARWING" = "1" ]; then \
+      apt-get update; \
+      apt-get install -y --no-install-recommends git libpcap0.8; \
+      apt-get install -y --no-install-recommends \
+          build-essential pkg-config cargo libpcap-dev libssl-dev libffi-dev; \
+      pip install --no-cache-dir "clearwing @ git+https://github.com/Lazarus-AI/clearwing"; \
+      python -c "import clearwing.sourcehunt.runner; print('clearwing import OK')"; \
+      apt-get purge -y --auto-remove \
+          build-essential pkg-config cargo libpcap-dev libssl-dev libffi-dev; \
+      rm -rf /var/lib/apt/lists/* /root/.cargo /root/.cache; \
+    fi
+
 COPY backend ./backend
 COPY migrations ./migrations
 COPY frontend ./frontend

@@ -2,6 +2,7 @@
 from backend.app.models.app_setting import AppSetting
 from backend.app.models.asset import Asset
 from backend.app.models.base import Base
+from backend.app.models.clearwing_scan import ClearwingScan
 from backend.app.models.connector_credential import ConnectorCredential
 from backend.app.models.connector_run import ConnectorRun
 from backend.app.models.error_log import ErrorLog
@@ -13,5 +14,5 @@ from backend.app.models.watched_package import WatchedPackage
 
 __all__ = [
     "Base", "Asset", "Finding", "ConnectorRun", "ConnectorCredential", "User", "Session",
-    "WatchedPackage", "PackageScan", "AppSetting", "ErrorLog",
+    "WatchedPackage", "PackageScan", "ClearwingScan", "AppSetting", "ErrorLog",
 ]

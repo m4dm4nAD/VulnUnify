@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Code Scan</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
+</head>
+<body>
+  <div id="view" data-page="scan" data-title="Code Scan"
+       data-subtitle="Clearwing source-code vulnerability hunting · experimental">
+
+    <div id="cwBanner"></div>
+
+    <section>
+      <h2>New scan</h2>
+      <p class="muted" style="margin-top:-4px">Point Clearwing's <code>sourcehunt</code> pipeline at a
+        Git repository. Scans run in the background (minutes&nbsp;to&nbsp;hours) and their findings land in
+        the unified <a class="link" href="/">Findings</a> list under source <code>clearwing</code>.</p>
+      <div class="filters" style="align-items:flex-end">
+        <label style="flex-direction:column;align-items:flex-start;gap:4px">Repository URL
+          <input id="repo" style="width:340px" placeholder="https://github.com/org/project" /></label>
+        <label style="flex-direction:column;align-items:flex-start;gap:4px">Branch
+          <input id="branch" style="width:120px" value="main" /></label>
+        <label style="flex-direction:column;align-items:flex-start;gap:4px">Depth
+          <select id="depth"><option value="quick">quick</option>
+            <option value="standard" selected>standard</option>
+            <option value="deep">deep</option></select></label>
+        <label style="flex-direction:column;align-items:flex-start;gap:4px">Budget (USD)
+          <input id="budget" type="number" min="0" step="1" value="5" style="width:100px" /></label>
+        <button class="btn" id="startBtn" onclick="startScan()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3Z"/></svg>Start scan</button>
+        <span id="startMsg" class="muted"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Scans <span class="muted" id="scanCount"></span></h2>
+      <div class="table-card">
+        <div class="tscroll">
+          <table><thead><tr>
+            <th>Repository</th><th>Depth</th><th>Status</th><th>Findings</th>
+            <th>Cost</th><th>Started</th><th>By</th></tr></thead>
+            <tbody id="scans"></tbody></table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const DOT = { queued: "skip", running: "skip", succeeded: "ok", failed: "err" };
+
+    function statusCell(s) {
+      const live = s.status === "queued" || s.status === "running";
+      const stage = s.status === "running" && s.stage ? ` <span class="muted">· ${esc(s.stage)}</span>` : "";
+      return `<span class="dot ${DOT[s.status] || "off"}"></span>${esc(s.status)}${stage}`
+        + (s.status === "failed" && s.error ? ` <span class="link" title="${esc(s.error)}">why?</span>` : "");
+    }
+
+    async function loadScans() {
+      const scans = await api("/api/clearwing/scans");
+      renderRows("scans", scans, s => `<tr>
+        <td><div class="f-title" style="max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc(s.repo_url)}</div>
+            <div class="f-sub"><span class="src">${esc(s.branch)}</span></div></td>
+        <td class="mono-cell">${esc(s.depth)}</td>
+        <td>${statusCell(s)}</td>
+        <td class="num">${s.findings_count}</td>
+        <td class="num">${s.cost_usd ? "$" + s.cost_usd.toFixed(2) : "—"}</td>
+        <td class="muted">${s.started_at ? esc(fmtDate(s.started_at)) : "queued"}</td>
+        <td>${esc(s.username || "—")}</td></tr>`,
+        { colspan: 7, empty: "No scans yet — start one above.", countEl: "scanCount" });
+      // Keep polling while anything is queued/running.
+      const live = scans.some(s => s.status === "queued" || s.status === "running");
+      clearTimeout(window._pollT);
+      if (live) window._pollT = setTimeout(loadScans, 4000);
+    }
+
+    async function startScan() {
+      const msg = document.getElementById("startMsg"); msg.textContent = "";
+      const repo = document.getElementById("repo").value.trim();
+      if (!repo) { msg.textContent = "enter a repository URL"; return; }
+      const body = {
+        repo_url: repo,
+        branch: document.getElementById("branch").value.trim() || "main",
+        depth: document.getElementById("depth").value,
+        budget_usd: parseFloat(document.getElementById("budget").value) || 0,
+      };
+      const btn = document.getElementById("startBtn"); btn.disabled = true;
+      const r = await apiTry("/api/clearwing/scan", { method: "POST", json: body });
+      btn.disabled = false;
+      if (r.ok) { document.getElementById("repo").value = ""; toast("Scan queued", "success"); loadScans(); }
+      else { msg.textContent = detailOf(r.body, "could not start scan"); }
+    }
+
+    async function checkAvailable() {
+      let st; try { st = await api("/api/clearwing/status"); } catch { return; }
+      const el = document.getElementById("cwBanner");
+      const box = (html) => `<div class="card" style="border-color:color-mix(in srgb,var(--warn) 45%,var(--border));padding:12px 16px">${html}</div>`;
+      if (!st.available) {
+        el.innerHTML = box(`<b>Clearwing isn't installed in this environment.</b>
+          <span class="muted">You can queue scans, but they'll fail until the <code>clearwing</code> library is
+          available in the API image.</span>`);
+      } else if (!st.key_configured) {
+        el.innerHTML = box(`<b>No LLM key set.</b>
+          <span class="muted">Scans will fail until an Anthropic key (or an OpenAI-compatible endpoint) is set on the
+          <a class="link" href="/connectors.html">Connectors</a> page.</span>`);
+      }
+    }
+
+    requireRole("security").then(() => { checkAvailable(); loadScans(); });
+  </script>
+</body>
+</html>

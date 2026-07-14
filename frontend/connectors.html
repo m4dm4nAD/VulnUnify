@@ -31,6 +31,18 @@
       <h2>SLA policy <span class="muted" style="text-transform:none">— days from first seen, by severity</span></h2>
       <div id="sla"></div>
     </section>
+
+    <section data-gate="admin">
+      <h2>Code scan · Clearwing</h2>
+      <p class="muted" style="margin-top:-4px">LLM credentials for the
+        <a class="link" href="/scan.html">Code Scan</a> feature, stored encrypted. Clearwing needs an
+        Anthropic API key (or an OpenAI-compatible endpoint).</p>
+      <div class="filters">
+        <span id="cwKeyState" class="muted"></span>
+        <button class="mini" data-primary
+          onclick="openConfig('/api/clearwing/config','Clearwing · code scan credentials')">Configure keys</button>
+      </div>
+    </section>
   </div>
 
   <div class="modal-overlay" id="cfgOverlay">
@@ -73,7 +85,7 @@
     document.getElementById("connectors").addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-act]");
       if (!btn) return;
-      if (btn.dataset.act === "config") openConfig(btn.dataset.name);
+      if (btn.dataset.act === "config") openConfig(`/api/connectors/${btn.dataset.name}/config`, "Configure " + btn.dataset.name);
       else if (btn.dataset.act === "sync") syncOne(btn.dataset.name, btn);
     });
 
@@ -132,11 +144,11 @@
       loadSettings();
     }
 
-    // ---- connector configure modal ----
+    // ---- configure modal (works for any {name, fields} config endpoint) ----
     let cfgState = null;
-    async function openConfig(name) {
-      cfgState = await api(`/api/connectors/${name}/config`);
-      document.getElementById("cfgTitle").textContent = "Configure " + name;
+    async function openConfig(url, title) {
+      cfgState = await api(url); cfgState._url = url;
+      document.getElementById("cfgTitle").textContent = title;
       document.getElementById("cfgFields").innerHTML = cfgState.fields.map((f, i) => {
         const ph = f.secret ? (f.is_set ? f.display : (f.placeholder || "")) : (f.placeholder || "");
         const val = f.secret ? "" : esc(f.value);
@@ -155,16 +167,24 @@
         const cur = document.getElementById("cfg_" + i).value;
         if (cur !== (f.secret ? "" : f.value)) values[f.key] = cur;
       });
+      const url = cfgState._url;
       const btn = document.getElementById("cfgSave"); btn.disabled = true; btn.textContent = "Saving…";
       try {
-        await api(`/api/connectors/${cfgState.name}/config`, { method: "PUT", json: { values } });
+        await api(url, { method: "PUT", json: { values } });
       } finally { btn.disabled = false; btn.textContent = "Save"; }
-      closeConfig(); loadConnectors();
+      closeConfig(); loadConnectors(); if (isAdmin()) loadClearwing();
     }
     async function resetConfig() {
-      if (!confirm(`Clear all stored credentials for ${cfgState.name} and revert to .env?`)) return;
-      await api(`/api/connectors/${cfgState.name}/config`, { method: "DELETE" });
-      closeConfig(); loadConnectors();
+      if (!confirm("Clear all stored credentials and revert to environment defaults?")) return;
+      await api(cfgState._url, { method: "DELETE" });
+      closeConfig(); loadConnectors(); if (isAdmin()) loadClearwing();
+    }
+
+    async function loadClearwing() {
+      let st; try { st = await api("/api/clearwing/status"); } catch { return; }
+      const el = document.getElementById("cwKeyState"); if (!el) return;
+      el.textContent = !st.available ? "Clearwing library not installed in this image"
+        : st.key_configured ? "✓ LLM key configured" : "no LLM key set — scans will fail until one is added";
     }
 
     async function syncOne(name, btn) {
@@ -178,7 +198,7 @@
     }
 
     syncBtn.onclick = () => syncAll(syncBtn, loadConnectors);
-    requireRole("security").then(() => { loadConnectors(); loadSettings(); });
+    requireRole("security").then(() => { loadConnectors(); loadSettings(); if (isAdmin()) loadClearwing(); });
   </script>
 </body>
 </html>

@@ -119,6 +119,7 @@ const ICONS = {
   containers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>',
   users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.2a3 3 0 0 1 0 5.6M18.5 20a5.5 5.5 0 0 0-3-4.9"/></svg>',
   status: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 13v6M9 9v10M14 5v14M19 11v8"/></svg>',
+  scan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg>',
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10Z"/></svg>',
   sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4.5v-2M12 21.5v-2M19.5 12h2M2.5 12h2M17.7 6.3l1.4-1.4M4.9 19.1l1.4-1.4M17.7 17.7l1.4 1.4M4.9 4.9l1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg>',
   logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 12H4M11 8l-4 4 4 4M14 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/></svg>',
@@ -134,6 +135,7 @@ const NAV = [
     { key: "connectors", href: "/connectors.html", label: "Connectors", icon: "connectors", gate: "security" },
     { key: "packages", href: "/packages.html", label: "Packages", icon: "packages" },
     { key: "containers", href: "/containers.html", label: "Containers", icon: "containers", gate: "security" },
+    { key: "scan", href: "/scan.html", label: "Code Scan", icon: "scan", gate: "security" },
   ]},
   { title: "Team & System", gate: "security", items: [
     { key: "users", href: "/users.html", label: "Users", icon: "users", gate: "admin" },
