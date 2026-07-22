@@ -123,9 +123,11 @@ def refresh(db: Session) -> dict:
     for feed in feeds:
         try:
             if feed.kind == "kev":
-                kev_data = fetch_kev(); count = len(kev_data)
+                kev_data = fetch_kev()
+                count = len(kev_data)
             elif feed.kind == "epss":
-                epss_data = fetch_epss(cves) if cves else {}; count = len(epss_data)
+                epss_data = fetch_epss(cves) if cves else {}
+                count = len(epss_data)
             elif feed.kind == "cve_list" and feed.url:
                 found = fetch_cve_list(feed.url)
                 for c in found:
@@ -149,15 +151,18 @@ def refresh(db: Session) -> dict:
         intel.kev_date_added = k["date_added"] if k else None
         intel.kev_ransomware = bool(k and k["ransomware"])
         if k:
-            srcs.add("kev"); kev_hits += 1
+            srcs.add("kev")
+            kev_hits += 1
         e = epss_data.get(cve)
         if e:
             intel.epss_score, intel.epss_percentile = e["score"], e["percentile"]
-            srcs.add("epss"); epss_hits += 1
+            srcs.add("epss")
+            epss_hits += 1
         w = watchlist.get(cve)
         intel.watchlisted = bool(w)
         if w:
-            srcs |= w; watch_hits += 1
+            srcs |= w
+            watch_hits += 1
         intel.sources = ",".join(sorted(srcs)) or None
         intel.updated_at = now
         db.add(intel)
