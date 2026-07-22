@@ -33,6 +33,21 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3Z"/></svg>Start scan</button>
         <span id="startMsg" class="muted"></span>
       </div>
+      <div class="scan-opts">
+        <label title="Multi-turn agentic exploit development to confirm real impact (slower, costs more)">
+          <input type="checkbox" id="optExploit" /> Exploit development</label>
+        <label title="Generate and validate fix patches for confirmed findings">
+          <input type="checkbox" id="optPatch" /> Generate patches</label>
+        <label title="Open a draft pull request with the patch (requires a git token in the image)">
+          <input type="checkbox" id="optPr" /> Draft PR</label>
+        <label title="Emit MITRE / HackerOne responsible-disclosure templates">
+          <input type="checkbox" id="optDisc" /> Disclosure templates</label>
+      </div>
+    </section>
+
+    <section id="progressSection" hidden>
+      <h2>In progress</h2>
+      <div id="progress"></div>
     </section>
 
     <section>
@@ -46,34 +61,151 @@
         </div>
       </div>
     </section>
+
+    <div class="modal-overlay" id="scanOverlay">
+      <div class="modal detail">
+        <div id="scanBody"></div>
+        <div class="modal-actions">
+          <span class="spacer"></span>
+          <button class="mini" data-primary onclick="closeScan()">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
     const DOT = { queued: "skip", running: "skip", succeeded: "ok", failed: "err" };
 
+    // The sourcehunt pipeline, in order. Clearwing's stage events map onto these;
+    // a couple of names are aliased to the step they belong to.
+    const STAGES = [
+      { key: "clone", label: "Clone" }, { key: "preprocess", label: "Preprocess" },
+      { key: "rank", label: "Rank" }, { key: "hunt", label: "Hunt" },
+      { key: "verify", label: "Verify" }, { key: "exploit", label: "Exploit" },
+      { key: "report", label: "Report" },
+    ];
+    const STAGE_ALIAS = { scan: "preprocess", subsystem_hunt: "hunt" };
+    const stageIndex = stage =>
+      STAGES.findIndex(s => s.key === (STAGE_ALIAS[stage] || stage));
+
+    const isLive = s => s.status === "queued" || s.status === "running";
+
+    function elapsed(startIso) {
+      if (!startIso) return "";
+      const secs = Math.max(0, Math.floor((Date.now() - new Date(startIso).getTime()) / 1000));
+      const m = Math.floor(secs / 60), s = secs % 60;
+      return m ? `${m}m ${s}s` : `${s}s`;
+    }
+
+    // ---- live progress cards ----
+    function progressCard(s) {
+      const idx = s.status === "queued" ? -1 : stageIndex(s.stage);
+      const steps = STAGES.map((st, i) => {
+        const cls = idx < 0 ? "" : i < idx ? "done" : i === idx ? "active" : "";
+        return `<div class="step ${cls}"><span class="sdot"></span><span class="slabel">${st.label}</span></div>`;
+      }).join("");
+      const activity = s.activity ? esc(s.activity)
+        : (s.status === "queued" ? "waiting to start…" : "working…");
+      const metrics = [
+        s.findings_count ? `${s.findings_count} findings` : null,
+        s.cost_usd ? "$" + s.cost_usd.toFixed(2) : null,
+        s.files_ranked ? `${s.files_ranked} files` : null,
+      ].filter(Boolean).join(" · ");
+      return `<div class="progress-card">
+        <div class="pc-head">
+          <span class="pc-repo" title="${esc(s.repo_url)}">${esc(s.repo_url)}</span>
+          <span class="muted">${esc(s.branch)} · ${esc(s.depth)}</span>
+          <span class="spacer"></span>
+          <span class="muted" data-elapsed="${esc(s.started_at || "")}">${elapsed(s.started_at)}</span>
+        </div>
+        <div class="stepper">${steps}</div>
+        <div class="pc-activity"><span class="spin"></span><span>${activity}</span></div>
+        ${metrics ? `<div class="pc-metrics muted">${metrics}</div>` : ""}
+      </div>`;
+    }
+
+    function renderProgress(scans) {
+      const live = scans.filter(isLive);
+      const sec = document.getElementById("progressSection");
+      sec.hidden = live.length === 0;
+      document.getElementById("progress").innerHTML = live.map(progressCard).join("");
+    }
+
+    // Tick the elapsed clocks every second so running scans feel alive.
+    setInterval(() => {
+      document.querySelectorAll("[data-elapsed]").forEach(el => {
+        const start = el.getAttribute("data-elapsed");
+        if (start) el.textContent = elapsed(start);
+      });
+    }, 1000);
+
     function statusCell(s) {
-      const live = s.status === "queued" || s.status === "running";
-      const stage = s.status === "running" && s.stage ? ` <span class="muted">· ${esc(s.stage)}</span>` : "";
+      const stage = s.status === "running" && s.stage
+        ? ` <span class="muted">· ${esc(s.stage)}</span>` : "";
       return `<span class="dot ${DOT[s.status] || "off"}"></span>${esc(s.status)}${stage}`
         + (s.status === "failed" && s.error ? ` <span class="link" title="${esc(s.error)}">why?</span>` : "");
     }
 
     async function loadScans() {
       const scans = await api("/api/clearwing/scans");
-      renderRows("scans", scans, s => `<tr>
+      renderProgress(scans);
+      renderRows("scans", scans, s => `<tr class="clickable" onclick="openScan(${s.id})">
         <td><div class="f-title" style="max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc(s.repo_url)}</div>
             <div class="f-sub"><span class="src">${esc(s.branch)}</span></div></td>
         <td class="mono-cell">${esc(s.depth)}</td>
         <td>${statusCell(s)}</td>
-        <td class="num">${s.findings_count}</td>
+        <td class="num">${s.findings_count}${s.verified_count ? ` <span class="muted">(${s.verified_count}✓)</span>` : ""}</td>
         <td class="num">${s.cost_usd ? "$" + s.cost_usd.toFixed(2) : "—"}</td>
         <td class="muted">${s.started_at ? esc(fmtDate(s.started_at)) : "queued"}</td>
         <td>${esc(s.username || "—")}</td></tr>`,
         { colspan: 7, empty: "No scans yet — start one above.", countEl: "scanCount" });
-      // Keep polling while anything is queued/running.
-      const live = scans.some(s => s.status === "queued" || s.status === "running");
+      // Poll quickly while anything is live so progress feels responsive.
       clearTimeout(window._pollT);
-      if (live) window._pollT = setTimeout(loadScans, 4000);
+      if (scans.some(isLive)) window._pollT = setTimeout(loadScans, 2000);
+    }
+
+    // ---- scan detail modal ----
+    async function openScan(id) {
+      const s = await api(`/api/clearwing/scans/${id}`);
+      document.getElementById("scanBody").innerHTML = renderScanDetail(s);
+      document.getElementById("scanOverlay").classList.add("show");
+    }
+    function closeScan() { document.getElementById("scanOverlay").classList.remove("show"); }
+
+    function renderScanDetail(s) {
+      const row = (k, v) => (v == null || v === "")
+        ? "" : `<div class="drow"><span class="dk">${esc(k)}</span><span class="dv">${v}</span></div>`;
+      const stPill = s.status === "succeeded" ? "resolved" : s.status === "failed" ? "open" : "snoozed";
+      const dl = (label, kind, present) => present
+        ? `<a class="btn mini" href="/api/clearwing/scans/${s.id}/${kind}" download>${label}</a>` : "";
+      const opts = [s.exploit && "exploit dev", s.auto_patch && "auto-patch",
+                    s.auto_pr && "draft PR", s.disclosures && "disclosures"]
+                    .filter(Boolean).join(", ") || "discovery only";
+      return `
+        <h3 style="word-break:break-all">${esc(s.repo_url)}</h3>
+        <div class="dpills">
+          <span class="pill st-${stPill}">${esc(s.status)}</span>
+          <span class="muted">${esc(s.branch)} · ${esc(s.depth)} · ${esc(opts)}</span>
+        </div>
+        <div class="dsec">
+          ${row("Findings", s.findings_count)}
+          ${row("Verified", s.verified_count || "")}
+          ${row("Exploited", s.exploited_count || "")}
+          ${row("Files ranked / hunted", `${s.files_ranked} / ${s.files_hunted}`)}
+          ${row("Exit code", s.exit_code == null ? "" : s.exit_code)}
+          ${row("Tokens", s.tokens_used ? s.tokens_used.toLocaleString() : "")}
+          ${row("Cost", s.cost_usd ? "$" + s.cost_usd.toFixed(2) : "$0.00")}
+          ${row("Duration", s.duration_seconds ? s.duration_seconds.toFixed(1) + "s" : "")}
+          ${row("Session", s.session_id ? `<span class="mono">${esc(s.session_id)}</span>` : "")}
+          ${row("Started", s.started_at ? fmtDate(s.started_at) : "")}
+          ${row("Finished", s.finished_at ? fmtDate(s.finished_at) : "")}
+        </div>
+        ${s.error ? `<div class="dblock"><div class="dk">Error</div>
+          <div class="dtext" style="color:var(--crit)">${esc(s.error)}</div></div>` : ""}
+        <div class="dblock"><div class="dk">Reports</div><div class="dtext">
+          ${dl("⬇ SARIF", "sarif", s.has_sarif)} ${dl("⬇ Markdown report", "report", s.has_report)}
+          ${!s.has_sarif && !s.has_report ? '<span class="muted">no report artifacts</span>' : ""}
+        </div></div>`;
     }
 
     async function startScan() {
@@ -85,6 +217,10 @@
         branch: document.getElementById("branch").value.trim() || "main",
         depth: document.getElementById("depth").value,
         budget_usd: parseFloat(document.getElementById("budget").value) || 0,
+        exploit: document.getElementById("optExploit").checked,
+        auto_patch: document.getElementById("optPatch").checked,
+        auto_pr: document.getElementById("optPr").checked,
+        disclosures: document.getElementById("optDisc").checked,
       };
       const btn = document.getElementById("startBtn"); btn.disabled = true;
       const r = await apiTry("/api/clearwing/scan", { method: "POST", json: body });
@@ -103,8 +239,8 @@
           available in the API image.</span>`);
       } else if (!st.key_configured) {
         el.innerHTML = box(`<b>No LLM key set.</b>
-          <span class="muted">Scans will fail until an Anthropic key (or an OpenAI-compatible endpoint) is set on the
-          <a class="link" href="/connectors.html">Connectors</a> page.</span>`);
+          <span class="muted">Scans still run the static pass, but LLM hunting/exploit/patch need an Anthropic key
+          (or an OpenAI-compatible endpoint) set on the <a class="link" href="/connectors.html">Connectors</a> page.</span>`);
       }
     }
 

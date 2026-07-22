@@ -342,3 +342,43 @@ body.login { display: flex; align-items: center; justify-content: center; min-he
 /* Expanded member rows: subtly inset from their group head. */
 tr.grp-member > td { background: color-mix(in srgb, var(--text) 4%, transparent); }
 .f-title.indent, .f-sub.indent { padding-left: 22px; }
+
+/* ---- Code Scan: options, live progress stepper, spinner ----------------- */
+.scan-opts { display: flex; flex-wrap: wrap; gap: 12px 22px; margin-top: 14px; font-size: 13px; }
+.scan-opts label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: color-mix(in srgb, var(--text) 4%, transparent); }
+
+.progress-card { border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); padding: 14px 16px 16px; margin-bottom: 12px; }
+.pc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.pc-repo { font-weight: 600; max-width: 420px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.pc-activity { display: flex; align-items: center; gap: 9px; margin-top: 14px; font-size: 13.5px; }
+.pc-metrics { margin-top: 6px; font-size: 12.5px; }
+
+/* horizontal stage stepper */
+.stepper { display: flex; align-items: flex-start; }
+.stepper .step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  position: relative; font-size: 11px; color: var(--text-faint); text-align: center; }
+.stepper .step::before { content: ""; position: absolute; top: 6px; left: -50%; width: 100%;
+  height: 2px; background: var(--border); z-index: 0; }
+.stepper .step:first-child::before { display: none; }
+.stepper .step .sdot { width: 13px; height: 13px; border-radius: 50%; background: var(--surface);
+  border: 2px solid var(--border); z-index: 1; }
+.stepper .step.done { color: var(--text-muted); }
+.stepper .step.done .sdot, .stepper .step.done::before { background: var(--accent); }
+.stepper .step.done .sdot { border-color: var(--accent); }
+.stepper .step.active { color: var(--accent); font-weight: 600; }
+.stepper .step.active .sdot { border-color: var(--accent);
+  animation: cwpulse 1.3s ease-in-out infinite; }
+@keyframes cwpulse { 0%,100% { box-shadow: 0 0 0 3px var(--accent-weak); }
+  50% { box-shadow: 0 0 0 6px var(--accent-weak); } }
+
+.spin { width: 13px; height: 13px; flex: none; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  display: inline-block; animation: cwspin .8s linear infinite; }
+@keyframes cwspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spin, .stepper .step.active .sdot { animation: none; }
+}

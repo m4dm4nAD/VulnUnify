@@ -42,6 +42,26 @@ RUN set -eux; \
       rm -rf /var/lib/apt/lists/* /root/.cargo /root/.cache; \
     fi
 
+# ---- Deepened sourcehunt runtime toolchain (kept in the image) ----
+# clang/LLVM + bear: sanitizer-validated exploit development (ASan/UBSan compile
+# of the target at scan time). gh: opens the draft PR when auto_pr is enabled.
+# Only needed for the exploit/patch/PR options; disable with --build-arg
+# WITH_HUNT_TOOLCHAIN=0 to keep the image slim for discovery-only scans.
+ARG WITH_HUNT_TOOLCHAIN=1
+ARG GH_VERSION=2.62.0
+RUN set -eux; \
+    if [ "$WITH_HUNT_TOOLCHAIN" = "1" ]; then \
+      apt-get update; \
+      apt-get install -y --no-install-recommends clang llvm bear curl ca-certificates; \
+      arch="$(dpkg --print-architecture)"; \
+      curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.tar.gz" \
+        -o /tmp/gh.tgz; \
+      tar -xzf /tmp/gh.tgz -C /tmp; \
+      mv "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" /usr/local/bin/gh; \
+      gh --version; clang --version | head -1; bear --version || true; \
+      rm -rf /tmp/gh.tgz "/tmp/gh_${GH_VERSION}_linux_${arch}" /var/lib/apt/lists/*; \
+    fi
+
 COPY backend ./backend
 COPY migrations ./migrations
 COPY frontend ./frontend

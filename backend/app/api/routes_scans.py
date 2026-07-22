@@ -6,7 +6,7 @@ findings list under source "clearwing". Security-team only.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from backend.app.api.deps import require_security, require_security_admin
 from backend.app.models.user import User
@@ -55,6 +55,8 @@ def start_scan(body: ScanStartIn, user: User = Depends(require_security)):
     scan_id = clearwing.start_scan(
         user_id=user.id, repo_url=body.repo_url, branch=body.branch,
         depth=body.depth, budget_usd=body.budget_usd,
+        exploit=body.exploit, auto_patch=body.auto_patch,
+        auto_pr=body.auto_pr, disclosures=body.disclosures,
     )
     scan = clearwing.get_scan(scan_id)
     if scan is None:
@@ -73,3 +75,27 @@ def get_scan(scan_id: int, _: User = Depends(require_security)):
     if scan is None:
         raise HTTPException(404, "scan not found")
     return scan
+
+
+@router.get("/scans/{scan_id}/sarif")
+def get_scan_sarif(scan_id: int, _: User = Depends(require_security)):
+    """Download the scan's SARIF report (GitHub code-scanning compatible)."""
+    content = clearwing.get_artifact(scan_id, "sarif")
+    if content is None:
+        raise HTTPException(404, "no SARIF report for this scan")
+    return Response(
+        content=content, media_type="application/sarif+json",
+        headers={"Content-Disposition": f'attachment; filename="clearwing-scan-{scan_id}.sarif"'},
+    )
+
+
+@router.get("/scans/{scan_id}/report")
+def get_scan_report(scan_id: int, _: User = Depends(require_security)):
+    """Download the scan's human-readable markdown report."""
+    content = clearwing.get_artifact(scan_id, "report")
+    if content is None:
+        raise HTTPException(404, "no markdown report for this scan")
+    return Response(
+        content=content, media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="clearwing-scan-{scan_id}.md"'},
+    )

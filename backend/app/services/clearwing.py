@@ -118,13 +118,20 @@ def to_normalized(repo_url: str, f: dict) -> NormalizedFinding:
     Kept pure (dict in, NormalizedFinding out) so it can be exercised without
     Clearwing installed. Field names follow clearwing.findings.types.Finding.
     """
-    sev_raw = (f.get("severity") or "info").lower()
+    # A verifier-confirmed severity overrides the hunter's initial guess.
+    sev_raw = (f.get("severity_verified") or f.get("severity") or "info").lower()
     cves = [c for c in (f.get("cve"), f.get("related_cve")) if c]
     cwes = [f["cwe"]] if f.get("cwe") else []
     ftype = (f.get("finding_type") or "").strip()
     title = (ftype.replace("_", " ") or (f.get("description") or "").strip()
              or "Clearwing finding")[:200]
-    fid = f.get("id") or f"{ftype}:{f.get('file', '')}:{f.get('line_number', '')}"
+    # Clearwing mints a fresh `id` every scan (e.g. "static-<random>"), so keying
+    # identity on it would create a NEW row on each re-scan. Derive a stable id from
+    # the finding's content (type + location + cwe) so repeated scans upsert instead
+    # of duplicating; fall back to the raw id only when there's nothing to key on.
+    _id_parts = [ftype, f.get("file"), f.get("line_number"), f.get("cwe")]
+    fid = ":".join(str(p) for p in _id_parts if p not in (None, "")) \
+        or f.get("id") or "clearwing-finding"
 
     return NormalizedFinding(
         source="clearwing",
@@ -138,16 +145,25 @@ def to_normalized(repo_url: str, f: dict) -> NormalizedFinding:
         cwe_ids=cwes,
         cvss_base_score=f.get("cvss"),
         location={"path": f.get("file"), "line": f.get("line_number"),
-                  "end_line": f.get("end_line")},
+                  "end_line": f.get("end_line"), "snippet": f.get("code_snippet") or None},
         remediation=f.get("auto_patch") or None,
         references=[],
         tags={
             "evidence_level": f.get("evidence_level"),
             "confidence": f.get("confidence"),
             "verified": f.get("verified"),
-            "exploit_success": f.get("exploit_success"),
             "discovered_by": f.get("discovered_by"),
             "clearwing_finding_type": ftype or None,
+            # exploitation signals (populated when the exploit stage runs)
+            "exploit_success": f.get("exploit_success"),
+            "has_poc": bool(f.get("poc")),
+            "has_exploit": bool(f.get("exploit")),
+            # patching signals (populated when auto-patch runs)
+            "auto_patch_validated": f.get("auto_patch_validated"),
+            "patch_oracle_passed": f.get("patch_oracle_passed"),
+            # provenance / tracing
+            "has_trace": bool(f.get("vulnerability_trace")),
+            "cluster_id": f.get("cluster_id") or None,
         },
         asset=NormalizedAsset(
             asset_type=AssetType.REPOSITORY, identifier=repo_url, name=repo_url
@@ -157,19 +173,22 @@ def to_normalized(repo_url: str, f: dict) -> NormalizedFinding:
 
 
 def start_scan(*, user_id: int | None, repo_url: str, branch: str, depth: str,
-               budget_usd: float) -> int:
+               budget_usd: float, exploit: bool = False, auto_patch: bool = False,
+               auto_pr: bool = False, disclosures: bool = False) -> int:
     """Create a queued scan and kick off its background thread. Returns the id."""
     with SessionLocal() as db:
         scan = ClearwingScan(
             repo_url=repo_url.strip(), branch=(branch or "main").strip(),
             depth=depth if depth in DEPTHS else "standard",
             budget_usd=budget_usd, status="queued", created_by=user_id,
+            exploit=exploit, auto_patch=auto_patch, auto_pr=auto_pr, disclosures=disclosures,
         )
         db.add(scan)
         db.commit()
         scan_id = scan.id
     threading.Thread(target=_run, args=(scan_id,), daemon=True).start()
-    log.info("clearwing.scan_queued", scan_id=scan_id, repo_url=repo_url, depth=depth)
+    log.info("clearwing.scan_queued", scan_id=scan_id, repo_url=repo_url, depth=depth,
+             exploit=exploit, auto_patch=auto_patch, auto_pr=auto_pr)
     return scan_id
 
 
@@ -177,6 +196,45 @@ def _set(scan_id: int, **fields) -> None:
     with SessionLocal() as db:
         db.execute(update(ClearwingScan).where(ClearwingScan.id == scan_id).values(**fields))
         db.commit()
+
+
+def _set_progress(scan_id: int, *, stage: str, status: str, findings_so_far: int,
+                  cost_usd: float, detail: str) -> None:
+    """Persist a live stage event so the UI can show what the scan is doing."""
+    fields: dict = {"stage": (stage or "")[:32]}
+    activity = (detail or status or "").strip()
+    if activity:
+        fields["activity"] = activity[:256]
+    if findings_so_far:                         # only advance; don't reset to 0 mid-run
+        fields["findings_count"] = int(findings_so_far)
+    if cost_usd:
+        fields["cost_usd"] = float(cost_usd)
+    _set(scan_id, **fields)
+
+
+def _wire_progress(runner, scan_id: int) -> None:
+    """Intercept Clearwing's per-stage events to stream progress into the scan row.
+
+    Clearwing calls `self._emit_stage(stage, status, findings_so_far=, cost_usd=,
+    detail=)` throughout the pipeline. We wrap the instance method so each event
+    also updates our record — best-effort; progress reporting never breaks a scan.
+    """
+    orig = runner._emit_stage
+
+    def hooked(*args, **kwargs):
+        try:
+            stage = args[0] if args else kwargs.get("stage", "")
+            status = args[1] if len(args) > 1 else kwargs.get("status", "")
+            findings = kwargs.get("findings_so_far", args[2] if len(args) > 2 else 0) or 0
+            cost = kwargs.get("cost_usd", args[3] if len(args) > 3 else 0.0) or 0.0
+            _set_progress(scan_id, stage=stage, status=status,
+                          findings_so_far=findings, cost_usd=cost,
+                          detail=kwargs.get("detail", ""))
+        except Exception:  # noqa: BLE001 - never let progress reporting fail the scan
+            pass
+        return orig(*args, **kwargs)
+
+    runner._emit_stage = hooked
 
 
 def _clone_repo(repo_url: str, branch: str, dest: str) -> None:
@@ -223,6 +281,8 @@ def _run(scan_id: int) -> None:
     with SessionLocal() as db:
         scan = db.get(ClearwingScan, scan_id)
         repo_url, branch, depth, budget = scan.repo_url, scan.branch, scan.depth, scan.budget_usd
+        exploit, auto_patch, auto_pr, disclosures = (
+            scan.exploit, scan.auto_patch, scan.auto_pr, scan.disclosures)
 
     try:
         # We clone into a dir we own (cleaned up on block exit) and pass it as
@@ -230,6 +290,7 @@ def _run(scan_id: int) -> None:
         # _clone_repo. The workdir must outlive runner.run(), so it wraps it.
         with tempfile.TemporaryDirectory(prefix="vulnunify-clearwing-") as workdir:
             repo_dir = os.path.join(workdir, "repo")
+            out_dir = os.path.join(workdir, "out")
             _set(scan_id, stage="clone")
             _clone_repo(repo_url, branch, repo_dir)
 
@@ -237,9 +298,14 @@ def _run(scan_id: int) -> None:
             runner = SourceHuntRunner(
                 repo_url=repo_url, local_path=repo_dir, branch=branch,
                 depth=depth, budget_usd=budget,
-                no_exploit=True,             # discovery + verification only, for now
-                output_formats=["json"],
+                no_exploit=not exploit,          # opt-in multi-turn exploit development
+                enable_auto_patch=auto_patch,    # opt-in validated patch generation
+                auto_pr=auto_pr,                 # opt-in draft PR (needs a git token)
+                export_disclosures=disclosures,  # opt-in MITRE/HackerOne templates
+                output_dir=out_dir,
+                output_formats=["sarif", "markdown", "json"],
             )
+            _wire_progress(runner, scan_id)  # stream stage events -> scan record (live UI)
             result = runner.run()            # blocks; LLM clients resolve from env/config
 
             findings = result.findings or []
@@ -247,10 +313,14 @@ def _run(scan_id: int) -> None:
             with SessionLocal() as db:
                 ingest_findings(db, normalized)
 
+            # Read metrics + report files before the workdir (and out_dir) are removed.
+            metrics = _result_metrics(result)
+            artifacts = _read_artifacts(getattr(result, "output_paths", None) or {})
+
         _set(scan_id, status="succeeded", stage="report", finished_at=utcnow(),
-             findings_count=len(findings), cost_usd=float(getattr(result, "cost_usd", 0.0) or 0.0),
-             session_id=str(getattr(result, "session_id", "") or "") or None)
-        log.info("clearwing.scan_done", scan_id=scan_id, findings=len(findings))
+             findings_count=len(findings), **metrics, **artifacts)
+        log.info("clearwing.scan_done", scan_id=scan_id, findings=len(findings),
+                 verified=metrics["verified_count"], exploited=metrics["exploited_count"])
     except Exception as exc:  # noqa: BLE001 - surface any runner failure on the job
         _set(scan_id, status="failed", finished_at=utcnow(),
              error=f"{type(exc).__name__}: {exc}")
@@ -266,6 +336,38 @@ def _as_dict(f) -> dict:
     if isinstance(f, dict):
         return f
     return dict(getattr(f, "__dict__", {}))
+
+
+def _result_metrics(result) -> dict:
+    """Scalar metrics off a SourceHuntResult, read defensively (fields are v-dependent)."""
+    def _count(attr) -> int:
+        v = getattr(result, attr, None)
+        return len(v) if v else 0
+    return {
+        "cost_usd": float(getattr(result, "cost_usd", 0.0) or 0.0),
+        "session_id": str(getattr(result, "session_id", "") or "") or None,
+        "verified_count": _count("verified_findings"),
+        "exploited_count": _count("exploited_findings"),
+        "files_ranked": int(getattr(result, "files_ranked", 0) or 0),
+        "files_hunted": int(getattr(result, "files_hunted", 0) or 0),
+        "tokens_used": int(getattr(result, "tokens_used", 0) or 0),
+        "duration_seconds": float(getattr(result, "duration_seconds", 0.0) or 0.0) or None,
+        "exit_code": getattr(result, "exit_code", None),
+    }
+
+
+def _read_artifacts(output_paths: dict) -> dict:
+    """Read the SARIF + markdown report files (if produced) into strings to store inline."""
+    out: dict[str, str | None] = {"sarif": None, "report_markdown": None}
+    for src_key, col in (("sarif", "sarif"), ("markdown", "report_markdown")):
+        path = output_paths.get(src_key)
+        if path and os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    out[col] = fh.read()
+            except OSError:
+                pass
+    return out
 
 
 def reset_stuck_scans() -> int:
@@ -298,12 +400,37 @@ def get_scan(scan_id: int) -> dict | None:
         return _out(scan) if scan else None
 
 
+# Report artifact kinds → the column holding the stored content.
+_ARTIFACT_COLS = {
+    "sarif": ClearwingScan.sarif,
+    "report": ClearwingScan.report_markdown,
+    "markdown": ClearwingScan.report_markdown,
+}
+
+
+def get_artifact(scan_id: int, kind: str) -> str | None:
+    """Return a stored report artifact ('sarif' | 'report'/'markdown'), or None."""
+    col = _ARTIFACT_COLS.get(kind)
+    if col is None:
+        return None
+    with SessionLocal() as db:
+        return db.scalar(select(col).where(ClearwingScan.id == scan_id))
+
+
 def _out(s: ClearwingScan) -> dict:
     return {
         "id": s.id, "repo_url": s.repo_url, "branch": s.branch, "depth": s.depth,
-        "budget_usd": s.budget_usd, "status": s.status, "stage": s.stage,
-        "findings_count": s.findings_count, "cost_usd": s.cost_usd,
-        "session_id": s.session_id, "error": s.error,
+        "budget_usd": s.budget_usd,
+        "exploit": s.exploit, "auto_patch": s.auto_patch, "auto_pr": s.auto_pr,
+        "disclosures": s.disclosures,
+        "status": s.status, "stage": s.stage, "activity": s.activity,
+        "error": s.error, "session_id": s.session_id,
+        "findings_count": s.findings_count, "verified_count": s.verified_count,
+        "exploited_count": s.exploited_count, "files_ranked": s.files_ranked,
+        "files_hunted": s.files_hunted, "tokens_used": s.tokens_used,
+        "duration_seconds": s.duration_seconds, "exit_code": s.exit_code,
+        "cost_usd": s.cost_usd,
+        "has_sarif": bool(s.sarif), "has_report": bool(s.report_markdown),
         "username": s.user.username if s.user else None,
         "created_at": s.created_at, "started_at": s.started_at, "finished_at": s.finished_at,
     }
