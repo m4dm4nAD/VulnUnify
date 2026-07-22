@@ -11,6 +11,7 @@
 <body>
   <div id="view" data-page="overview" data-title="Overview" data-subtitle="Unified findings across all connected sources">
     <div data-actions>
+      <button id="intelBtn" class="btn ghost" title="Refresh CISA KEV + EPSS and rescore risk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.5 4.5 5.5v6c0 4.6 3.2 7.9 7.5 9.4 4.3-1.5 7.5-4.8 7.5-9.4v-6L12 2.5Z"/></svg>Refresh intel</button>
       <button id="syncBtn" class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg>Sync all connectors</button>
     </div>
 
@@ -52,6 +53,7 @@
           <option value="sast">SAST</option><option value="sca">SCA</option>
           <option value="supply_chain">Supply Chain</option><option value="container">Container</option>
           <option value="secret">Secret</option><option value="iac">IAC</option></select>
+        <label><input type="checkbox" id="fKev" /> KEV only</label>
         <label><input type="checkbox" id="fOverdue" /> SLA breached only</label>
         <label><input type="checkbox" id="fGroup" /> Group duplicates</label>
         <input id="fQ" placeholder="search title…" />
@@ -60,6 +62,7 @@
         <div class="tscroll">
           <table><thead><tr>
             <th></th>
+            <th class="sortable" data-sort="risk" title="Composite risk: severity + KEV + EPSS + asset criticality">Risk<span class="arr"></span></th>
             <th class="sortable" data-sort="title">Finding<span class="arr"></span></th>
             <th>Asset</th>
             <th class="sortable" data-sort="severity">Severity<span class="arr"></span></th>
@@ -174,6 +177,7 @@
       { status: "open" },
       { status: "open", severity: "critical" },
       { status: "open", severity: "high" },
+      { status: "open", kev: true },
       { status: "open", overdue: true },
       { status: "suppressed" },
       { status: "resolved" },
@@ -184,7 +188,8 @@
       const sev = s.by_severity || {};
       const cards = [
         ["Open", s.open_findings, false], ["Critical", sev.critical || 0, false],
-        ["High", sev.high || 0, false], ["SLA breached", s.sla_breached, true],
+        ["High", sev.high || 0, false], ["KEV", s.kev_findings, true],
+        ["SLA breached", s.sla_breached, true],
         ["Suppressed", s.suppressed_findings, false], ["Resolved", s.resolved_findings, false],
       ];
       document.getElementById("cards").innerHTML = cards.map(
@@ -206,6 +211,7 @@
       fSeverity.value = flt.severity || "";
       fCategory.value = "";
       fOverdue.checked = !!flt.overdue;
+      fKev.checked = !!flt.kev;
       fQ.value = "";
       page = 0;
       loadStats();        // re-render cards to reflect the active highlight
@@ -224,7 +230,7 @@
     }
     const shortDate = v => v ? new Date(v).toLocaleDateString() : "—";
 
-    let sortField = "severity", sortOrder = "desc", page = 0;
+    let sortField = "risk", sortOrder = "desc", page = 0;
     const pageSize = () => parseInt(fPageSize.value, 10) || 50;
 
     // Shared filter params (used by both the flat list and the grouped view).
@@ -233,12 +239,22 @@
       if (fStatus.value) p.set("effective_status", fStatus.value);
       if (fSeverity.value) p.set("severity", fSeverity.value);
       if (fCategory.value) p.set("category", fCategory.value);
+      if (fKev.checked) p.set("kev", "true");
       if (fOverdue.checked) p.set("overdue", "true");
       if (fQ.value) p.set("q", fQ.value);
       return p;
     }
 
-    const EMPTY_ROW = `<tr><td colspan="8" class="muted">No findings — adjust filters or run a sync.</td></tr>`;
+    const EMPTY_ROW = `<tr><td colspan="9" class="muted">No findings — adjust filters or run a sync.</td></tr>`;
+
+    // Risk score (0..100) → colored badge by band.
+    function riskBadge(score) {
+      const s = Math.round(score || 0);
+      const band = s >= 80 ? "crit" : s >= 60 ? "high" : s >= 40 ? "med" : s >= 20 ? "low" : "info";
+      return `<span class="pill risk risk-${band}" title="composite risk ${s}/100">${s}</span>`;
+    }
+    const kevPill = ` <span class="pill kev" title="CISA Known Exploited Vulnerability — actively exploited">KEV</span>`;
+    const watchPill = ` <span class="pill watch" title="Flagged by a custom watchlist feed">WATCH</span>`;
 
     // One flat finding row. `indent` styles it as an expanded group member.
     function findingRow(f, indent = false) {
@@ -251,10 +267,12 @@
         `<option value="${v}" ${v === f.triage_state ? "selected" : ""}>${l}</option>`).join("");
       const asset = f.asset?.name || f.asset?.identifier || "—";
       const ind = indent ? " indent" : "";
+      const epss = f.epss_score != null ? ` · EPSS ${(f.epss_score * 100).toFixed(0)}%` : "";
       return `
         <td class="sev-cell"><span class="rail sev-${f.severity}"></span></td>
-        <td><div class="f-title${ind}"><span class="link cell-title" title="${esc(f.title)}" onclick="openFinding(${f.id})">${esc(f.title)}</span></div>
-            <div class="f-sub${ind}"><span class="src">${esc(f.source)}</span> · found ${shortDate(f.first_seen)}</div></td>
+        <td>${riskBadge(f.risk_score)}</td>
+        <td><div class="f-title${ind}"><span class="link cell-title" title="${esc(f.title)}" onclick="openFinding(${f.id})">${esc(f.title)}</span>${f.in_kev ? kevPill : ""}${f.watchlisted ? watchPill : ""}</div>
+            <div class="f-sub${ind}"><span class="src">${esc(f.source)}</span> · found ${shortDate(f.first_seen)}${epss}</div></td>
         <td class="mono-cell">${esc(asset)}</td>
         <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
         <td><span class="pill st-${f.effective_status}">${(f.effective_status || "").replace('_', ' ')}</span></td>
@@ -296,9 +314,13 @@
       const badge = multi
         ? `<span class="dupbadge" title="${g.count} correlated findings">×${g.count}</span>` : "";
       const cveline = g.cve_ids.length ? " · " + esc(g.cve_ids.join(", ")) : "";
+      const maxRisk = Math.max(0, ...g.members.map(m => m.risk_score || 0));
+      const gkev = (g.members.some(m => m.in_kev) ? kevPill : "")
+        + (g.members.some(m => m.watchlisted) ? watchPill : "");
       const head = `<tr class="grp-head">
         <td class="sev-cell"><span class="rail sev-${g.severity}"></span></td>
-        <td><div class="f-title">${caret}<span class="link cell-title" title="${esc(g.title)}" onclick="openFinding(${g.representative_id})">${esc(g.title)}</span>${badge}</div>
+        <td>${riskBadge(maxRisk)}</td>
+        <td><div class="f-title">${caret}<span class="link cell-title" title="${esc(g.title)}" onclick="openFinding(${g.representative_id})">${esc(g.title)}</span>${badge}${gkev}</div>
             <div class="f-sub"><span class="src">${esc(g.sources.join(", "))}</span>${cveline}</div></td>
         <td class="mono-cell">${esc(assetName)}</td>
         <td><span class="pill sev-${g.severity}">${g.severity}</span></td>
@@ -388,8 +410,11 @@
       return `
         <h3>${esc(f.title)}</h3>
         <div class="dpills">
+          ${riskBadge(f.risk_score)}
           <span class="pill sev-${f.severity}">${f.severity}</span>
           <span class="pill st-${f.effective_status}">${(f.effective_status || "").replace('_', ' ')}</span>
+          ${f.in_kev ? '<span class="pill kev" title="CISA Known Exploited Vulnerability">KEV</span>' : ''}
+          ${f.watchlisted ? '<span class="pill watch" title="Flagged by a custom watchlist feed">WATCH</span>' : ''}
           <span class="muted">${esc(f.source)} · ${esc(pretty(f.category))}</span>
           ${f.sla_breached ? '<span class="pill sla">SLA</span>' : ''}
         </div>
@@ -398,6 +423,10 @@
           ${a.name ? drow("Asset ID", esc(a.identifier)) : ""}
           ${drow("Type", esc(pretty(a.asset_type)))}
           ${a.cloud_provider ? drow("Cloud", esc(a.cloud_provider) + (a.region ? " / " + esc(a.region) : "")) : ""}
+          ${drow("Risk score", f.risk_score != null ? Math.round(f.risk_score) + " / 100" : "")}
+          ${f.in_kev ? drow("KEV", "Actively exploited — on CISA KEV") : ""}
+          ${f.watchlisted ? drow("Watchlist", "Flagged by a custom feed") : ""}
+          ${drow("EPSS", f.epss_score != null ? (f.epss_score * 100).toFixed(1) + "% exploit probability" : "")}
           ${drow("CVEs", esc((f.cve_ids || []).join(", ")))}
           ${drow("CWEs", esc((f.cwe_ids || []).join(", ")))}
           ${drow("CVSS", cvss)}
@@ -437,9 +466,21 @@
       loadFindings();
     }
 
+    async function refreshIntel() {
+      const label = intelBtn.textContent;
+      intelBtn.disabled = true; intelBtn.textContent = "Refreshing…";
+      try {
+        const r = await api("/api/intel/refresh", { method: "POST" });
+        toast(`Intel refreshed — ${r.kev} KEV, ${r.epss} EPSS across ${r.cves} CVEs`, "success");
+        refresh();
+      } finally { intelBtn.disabled = false; intelBtn.textContent = label; }
+    }
+
     syncBtn.onclick = () => syncAll(syncBtn, refresh);
+    intelBtn.onclick = refreshIntel;
     [fStatus, fSeverity, fCategory].forEach(el => el.onchange = onFilterChange);
     fOverdue.onchange = onFilterChange;
+    fKev.onchange = onFilterChange;
     // Toggling grouping just re-renders the table (keeps filters + active card).
     fGroup.onchange = () => { page = 0; loadFindings(); };
     fQ.oninput = () => { clearTimeout(window._t); window._t = setTimeout(onFilterChange, 300); };

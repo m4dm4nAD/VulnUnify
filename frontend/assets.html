@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Assets</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
+</head>
+<body>
+  <div id="view" data-page="assets" data-title="Assets"
+       data-subtitle="Inventory — set business criticality to tune risk scoring">
+    <section>
+      <h2>Assets <span class="muted" id="assetCount"></span></h2>
+      <p class="muted" style="margin-top:-4px">An asset's <b>criticality</b> tilts the risk score of every
+        finding on it — a KEV vuln on a <b>critical</b> asset outranks the same vuln on a <b>low</b> one.</p>
+      <div class="table-card">
+        <div class="tscroll">
+          <table><thead><tr>
+            <th>Asset</th><th>Type</th><th>Open</th><th>KEV</th><th>Top risk</th><th>Criticality</th>
+          </tr></thead><tbody id="assets"></tbody></table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const CRIT = ["critical", "high", "medium", "low"];
+
+    // Local copy of the dashboard's risk badge (0..100 -> colored pill).
+    function riskBadge(score) {
+      const s = Math.round(score || 0);
+      const band = s >= 80 ? "crit" : s >= 60 ? "high" : s >= 40 ? "med" : s >= 20 ? "low" : "info";
+      return `<span class="pill risk risk-${band}" title="highest finding risk ${s}/100">${s}</span>`;
+    }
+
+    async function loadAssets() {
+      const rows = await api("/api/assets");
+      renderRows("assets", rows, a => {
+        const opts = CRIT.map(c =>
+          `<option value="${c}" ${c === a.criticality ? "selected" : ""}>${c[0].toUpperCase() + c.slice(1)}</option>`).join("");
+        return `<tr>
+          <td><div class="f-title">${esc(a.name || a.identifier)}</div>
+              ${a.name ? `<div class="f-sub"><span class="src">${esc(a.identifier)}</span></div>` : ""}</td>
+          <td class="mono-cell">${esc(pretty(a.asset_type))}</td>
+          <td class="num">${a.open_findings}</td>
+          <td class="num">${a.kev_open ? `<span class="pill kev">${a.kev_open}</span>` : "—"}</td>
+          <td class="num">${a.open_findings ? riskBadge(a.max_risk) : "—"}</td>
+          <td><select onchange="setCrit(${a.id}, this.value)">${opts}</select></td></tr>`;
+      }, { colspan: 6, empty: "No assets yet — run a sync or a scan.", countEl: "assetCount" });
+    }
+
+    async function setCrit(id, val) {
+      await api(`/api/assets/${id}`, { method: "PATCH", json: { criticality: val } });
+      toast("Criticality updated — findings rescored", "success");
+      loadAssets();   // reload to reflect the new top-risk
+    }
+
+    requireRole("security").then(loadAssets);
+  </script>
+</body>
+</html>

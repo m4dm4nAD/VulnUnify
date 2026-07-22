@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Threat Intel</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
+</head>
+<body>
+  <div id="view" data-page="intel" data-title="Threat Intel"
+       data-subtitle="Enrichment feeds that drive risk-based prioritization">
+    <div data-actions>
+      <button id="refreshBtn" class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg>Refresh now</button>
+    </div>
+
+    <section class="cards" id="intelCards"></section>
+
+    <section>
+      <h2>Add a custom feed</h2>
+      <p class="muted" style="margin-top:-4px">Point at any URL that yields CVE ids — a JSON array, a CSV, a
+        newline list, even an advisory page. Its CVEs get <b>watchlisted</b> and nudged up in risk score.</p>
+      <div class="filters" style="align-items:flex-end">
+        <label style="flex-direction:column;align-items:flex-start;gap:4px">Name
+          <input id="feedName" style="width:200px" placeholder="acme-priority-cves" /></label>
+        <label style="flex-direction:column;align-items:flex-start;gap:4px">Feed URL
+          <input id="feedUrl" style="width:360px" placeholder="https://example.com/priority-cves.json" /></label>
+        <button class="btn" id="addBtn" onclick="addFeed()">Add feed</button>
+        <span id="addMsg" class="muted"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Feeds <span class="muted" id="feedCount"></span></h2>
+      <div class="table-card">
+        <div class="tscroll">
+          <table><thead><tr>
+            <th>Feed</th><th>Kind</th><th>CVEs</th><th>Last run</th><th>Status</th><th>Enabled</th><th></th>
+          </tr></thead><tbody id="feeds"></tbody></table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    async function loadStatus() {
+      const s = await api("/api/intel/status");
+      const cards = [
+        ["CVEs enriched", s.cve_intel_rows], ["On CISA KEV", s.kev_count],
+        ["Watchlisted", s.watchlisted_count], ["Feeds", s.feeds],
+      ];
+      document.getElementById("intelCards").innerHTML = cards.map(
+        ([l, n]) => `<div class="card"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`
+      ).join("") + (s.last_updated
+        ? `<div class="card"><div class="n" style="font-size:15px">${esc(fmtDate(s.last_updated))}</div><div class="l">Last refresh</div></div>`
+        : "");
+    }
+
+    const DOT = { ok: "ok", error: "err" };
+    async function loadFeeds() {
+      const feeds = await api("/api/intel/feeds");
+      renderRows("feeds", feeds, f => {
+        const status = f.last_status
+          ? `<span class="dot ${DOT[f.last_status] || 'off'}"></span>${esc(f.last_status)}` +
+            (f.last_status === "error" && f.last_error ? ` <span class="link" title="${esc(f.last_error)}">why?</span>` : "")
+          : `<span class="muted">never run</span>`;
+        const del = f.builtin
+          ? `<span class="muted" title="built-in feeds can be disabled but not deleted">built-in</span>`
+          : `<button class="mini danger" onclick="deleteFeed(${f.id}, '${esc(f.name)}')">Delete</button>`;
+        return `<tr>
+          <td><div class="f-title">${esc(f.name)}</div>
+              ${f.url ? `<div class="f-sub"><span class="src" style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.url)}</span></div>` : ""}</td>
+          <td class="mono-cell">${esc(f.kind)}</td>
+          <td class="num">${f.last_count || 0}</td>
+          <td class="muted">${f.last_run_at ? esc(fmtDate(f.last_run_at)) : "—"}</td>
+          <td>${status}</td>
+          <td><input type="checkbox" ${f.enabled ? "checked" : ""}
+                onchange="toggleFeed(${f.id}, this.checked)" title="enable/disable this feed" /></td>
+          <td>${del}</td></tr>`;
+      }, { colspan: 7, empty: "No feeds.", countEl: "feedCount" });
+    }
+
+    async function addFeed() {
+      const msg = document.getElementById("addMsg"); msg.textContent = "";
+      const name = document.getElementById("feedName").value.trim();
+      const url = document.getElementById("feedUrl").value.trim();
+      if (!name || !url) { msg.textContent = "name and URL are required"; return; }
+      const r = await apiTry("/api/intel/feeds", { method: "POST", json: { name, url } });
+      if (r.ok) {
+        document.getElementById("feedName").value = ""; document.getElementById("feedUrl").value = "";
+        toast("Feed added — Refresh now to pull it", "success"); loadFeeds();
+      } else { msg.textContent = detailOf(r.body, "could not add feed"); }
+    }
+
+    async function toggleFeed(id, enabled) {
+      await api(`/api/intel/feeds/${id}`, { method: "PATCH", json: { enabled } });
+    }
+
+    async function deleteFeed(id, name) {
+      if (!confirm(`Delete feed "${name}"?`)) return;
+      const r = await apiTry(`/api/intel/feeds/${id}`, { method: "DELETE" });
+      if (r.ok) { toast("Feed deleted", "success"); loadFeeds(); }
+      else toast(detailOf(r.body, "could not delete feed"));
+    }
+
+    async function refreshNow() {
+      const btn = document.getElementById("refreshBtn"); const label = btn.textContent;
+      btn.disabled = true; btn.textContent = "Refreshing…";
+      try {
+        const r = await api("/api/intel/refresh", { method: "POST" });
+        toast(`Refreshed — ${r.kev} KEV, ${r.epss} EPSS, ${r.watchlisted} watchlisted across ${r.cves} CVEs`, "success");
+        loadStatus(); loadFeeds();
+      } finally { btn.disabled = false; btn.textContent = label; }
+    }
+
+    document.getElementById("refreshBtn").onclick = refreshNow;
+    requireRole("security").then(() => { loadStatus(); loadFeeds(); });
+  </script>
+</body>
+</html>

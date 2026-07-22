@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     sla_medium_days: int = 90
     sla_low_days: int = 180
 
+    # --- Threat intelligence feeds (defaults ship enabled; both are free/no-auth) ---
+    kev_feed_url: str = (
+        "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    )
+    epss_api_url: str = "https://api.first.org/data/v1/epss"
+
     # --- Tenable ---
     tenable_access_key: str = ""
     tenable_secret_key: str = ""

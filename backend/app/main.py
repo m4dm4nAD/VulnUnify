@@ -13,11 +13,13 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.api import (
+    routes_assets,
     routes_auth,
     routes_connectors,
     routes_containers,
     routes_errors,
     routes_findings,
+    routes_intel,
     routes_lifecycle,
     routes_packages,
     routes_settings,
@@ -28,7 +30,7 @@ from backend.app.api.deps import require_security, require_user
 from backend.app.config import settings
 from backend.app.db import SessionLocal
 from backend.app.scheduler import shutdown_scheduler, start_scheduler
-from backend.app.services import errorlog
+from backend.app.services import errorlog, intel
 from backend.app.services.auth import seed_initial_admin
 
 # One level drives both stdlib logging and structlog, so LOG_LEVEL actually
@@ -42,6 +44,7 @@ structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(_LOG_LEV
 async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         seed_initial_admin(db)
+        intel.seed_builtin(db)   # ensure the KEV + EPSS feeds exist
     start_scheduler()
     try:
         yield
@@ -120,6 +123,8 @@ app.include_router(routes_findings.router, dependencies=_logged_in)
 app.include_router(routes_users.router, dependencies=_logged_in)
 app.include_router(routes_connectors.router, dependencies=_security)
 app.include_router(routes_sync.router, dependencies=_security)
+app.include_router(routes_intel.router, dependencies=_security)
+app.include_router(routes_assets.router, dependencies=_security)
 app.include_router(routes_lifecycle.router, dependencies=_security)
 app.include_router(routes_settings.router, dependencies=_security)
 # Packages: only /scan is open to all logged-in users (self-service dep check);

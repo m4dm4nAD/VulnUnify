@@ -42,6 +42,7 @@ _SEV_RANK = case(
     else_=0,
 )
 _SORT_COLS = {
+    "risk": Finding.risk_score,       # composite threat-intel-enriched priority
     "severity": _SEV_RANK,
     "status": Finding.effective_status,
     "title": Finding.title,
@@ -68,7 +69,7 @@ def _overdue_clause():
 
 def _apply_filters(
     stmt, actor, *, source, category, severity, effective_status,
-    triage_state, assigned_to, overdue, q,
+    triage_state, assigned_to, overdue, q, kev=None,
 ):
     """Apply the shared findings filters (used by both the flat list and groups)."""
     if source:
@@ -77,6 +78,8 @@ def _apply_filters(
         stmt = stmt.where(Finding.category == category)
     if severity:
         stmt = stmt.where(Finding.severity == severity)
+    if kev:
+        stmt = stmt.where(Finding.in_kev.is_(True))
     if effective_status == "suppressed":
         stmt = stmt.where(Finding.effective_status.in_(_SUPPRESSED))
     elif effective_status:
@@ -107,18 +110,19 @@ def list_findings(
     triage_state: str | None = None,
     assigned_to: int | None = Query(None, description="filter by assignee (security only)"),
     overdue: bool | None = Query(None, description="only SLA-breached open findings"),
+    kev: bool | None = Query(None, description="only CISA KEV (actively exploited) findings"),
     q: str | None = Query(None, description="substring match on title"),
-    sort: str = Query("severity", description="severity|status|title|source|age"),
+    sort: str = Query("risk", description="risk|severity|status|title|source|age"),
     order: str = Query("desc", description="asc|desc"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    """List findings (devs see only their assigned ones), critical-first by default."""
+    """List findings (devs see only their assigned ones), highest-risk first by default."""
     stmt = select(Finding).options(*_LOADS).where(_scope(actor))
     stmt = _apply_filters(
         stmt, actor, source=source, category=category, severity=severity,
         effective_status=effective_status, triage_state=triage_state,
-        assigned_to=assigned_to, overdue=overdue, q=q,
+        assigned_to=assigned_to, overdue=overdue, q=q, kev=kev,
     )
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
@@ -143,6 +147,7 @@ def list_finding_groups(
     triage_state: str | None = None,
     assigned_to: int | None = Query(None, description="filter by assignee (security only)"),
     overdue: bool | None = Query(None, description="only SLA-breached open findings"),
+    kev: bool | None = Query(None, description="only CISA KEV (actively exploited) findings"),
     q: str | None = Query(None, description="substring match on title"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -157,7 +162,7 @@ def list_finding_groups(
     stmt = _apply_filters(
         stmt, actor, source=source, category=category, severity=severity,
         effective_status=effective_status, triage_state=triage_state,
-        assigned_to=assigned_to, overdue=overdue, q=q,
+        assigned_to=assigned_to, overdue=overdue, q=q, kev=kev,
     )
     findings = db.scalars(stmt.order_by(Finding.id).limit(_GROUP_SCAN_CAP)).all()
 
@@ -279,6 +284,7 @@ def stats(db: Session = Depends(get_db), actor: User = Depends(require_user)):
         resolved_findings=count(Finding.effective_status == "resolved"),
         suppressed_findings=count(Finding.effective_status.in_(_SUPPRESSED)),
         sla_breached=count(_overdue_clause()),
+        kev_findings=count(open_only, Finding.in_kev.is_(True)),
         by_severity=grouped(Finding.severity),
         by_category=grouped(Finding.category),
         by_source=grouped(Finding.source),

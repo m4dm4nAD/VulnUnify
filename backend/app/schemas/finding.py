@@ -31,6 +31,11 @@ class FindingOut(BaseModel):
     raw_severity: str | None
     source_status: str
     effective_status: str
+    # Risk prioritization (threat-intel enriched)
+    risk_score: float
+    in_kev: bool
+    epss_score: float | None
+    watchlisted: bool
     cve_ids: list
     cwe_ids: list
     cvss_base_score: float | None
@@ -154,6 +159,7 @@ class StatsOut(BaseModel):
     resolved_findings: int
     suppressed_findings: int       # false_positive + accepted_risk + snoozed
     sla_breached: int
+    kev_findings: int              # open findings on CISA KEV (actively exploited)
     # De-duplication: distinct logical vulnerabilities vs. how many rows are dupes.
     unique_vulnerabilities: int
     duplicate_findings: int        # total_findings - unique_vulnerabilities

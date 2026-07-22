@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +43,16 @@ class Finding(Base, TimestampMixin):
 
     # SLA deadline derived from first_seen + per-severity window.
     sla_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Composite risk score (0..100) from severity/CVSS + threat intel (KEV, EPSS)
+    # + asset criticality. Recomputed by services/intel; stored + indexed so the
+    # findings queue can sort by "what to fix first" rather than raw severity.
+    risk_score: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+    # Denormalized threat-intel flags (max across the finding's CVEs), set during
+    # risk recompute so the findings list can badge/filter without a per-CVE join.
+    in_kev: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    epss_score: Mapped[float | None] = mapped_column(Float)   # 0..1, highest of its CVEs
+    watchlisted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)  # custom feed
 
     cve_ids: Mapped[list] = mapped_column(JSONB, default=list)
     cwe_ids: Mapped[list] = mapped_column(JSONB, default=list)

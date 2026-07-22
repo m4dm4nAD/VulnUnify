@@ -22,6 +22,10 @@ class Asset(Base, TimestampMixin):
     region: Mapped[str | None] = mapped_column(String(64))
     asset_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
 
+    # Business criticality — tilts the risk score (a KEV vuln on a crown-jewel
+    # asset outranks the same vuln on a dev box). critical|high|medium|low.
+    criticality: Mapped[str] = mapped_column(String(16), default="medium", index=True)
+
     first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

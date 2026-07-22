@@ -342,3 +342,21 @@ body.login { display: flex; align-items: center; justify-content: center; min-he
 /* Expanded member rows: subtly inset from their group head. */
 tr.grp-member > td { background: color-mix(in srgb, var(--text) 4%, transparent); }
 .f-title.indent, .f-sub.indent { padding-left: 22px; }
+
+/* ---- Risk scoring + threat-intel badges -------------------------------- */
+.pill.risk { font-variant-numeric: tabular-nums; min-width: 20px; justify-content: center; }
+.pill.risk-crit { background: color-mix(in srgb, var(--crit) 20%, transparent); color: var(--crit); }
+.pill.risk-high { background: color-mix(in srgb, var(--high) 20%, transparent); color: var(--high); }
+.pill.risk-med  { background: color-mix(in srgb, var(--med) 22%, transparent); color: var(--med); }
+.pill.risk-low  { background: color-mix(in srgb, var(--low) 20%, transparent); color: var(--low); }
+.pill.risk-info { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text-muted); }
+/* KEV — actively exploited; alarm styling so it jumps out */
+.pill.kev { background: var(--crit); color: #fff; font-weight: 700; letter-spacing: .04em; }
+/* secondary "ghost" button (Refresh intel sits next to the primary Sync) */
+.btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+.btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+/* watchlist badge (custom feed) + destructive button */
+.pill.watch { background: var(--warn); color: #1a1206; font-weight: 700; letter-spacing: .04em; }
+.mini.danger { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 40%, var(--border)); }
+.mini.danger:hover { background: color-mix(in srgb, var(--crit) 12%, transparent); }

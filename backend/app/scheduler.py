@@ -11,7 +11,7 @@ import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from backend.app.db import SessionLocal
-from backend.app.services import app_settings
+from backend.app.services import app_settings, intel
 from backend.app.services.ingest import sync_all
 from backend.app.services.lifecycle import recompute_all
 
@@ -29,6 +29,11 @@ def run_scheduled_sync() -> None:
         synced = sum(r.findings_count for r in runs)
         # Flush snoozes that expired since the last run.
         recompute_all(db)
+        # Refresh threat intel (KEV/EPSS) for the CVEs we now hold + rescore risk.
+        try:
+            intel.refresh(db)
+        except Exception as exc:  # noqa: BLE001 — intel feeds are best-effort
+            log.warning("scheduler.intel_failed", error=str(exc))
         log.info("scheduler.sync_done", connectors=len(runs), findings=synced)
     except Exception as exc:  # noqa: BLE001 — never let a bad run kill the scheduler thread
         log.error("scheduler.sync_failed", error=str(exc))
