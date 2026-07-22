@@ -78,6 +78,34 @@ window.api = api; window.apiTry = apiTry;
 const card = (n, l) => `<div class="card"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`;
 const fmtDate = v => v ? new Date(v).toLocaleString() : "—";
 
+// Display labels for enum values. The stored/API values stay lowercase (see
+// connectors/enums.py); this is purely how they're shown. Acronyms are kept
+// upper-case here so a naive title-caser doesn't render "SAST" as "Sast".
+const LABELS = {
+  // finding category
+  vulnerability: "Vulnerability", cloud_posture: "Cloud Posture", sast: "SAST",
+  sca: "SCA", supply_chain: "Supply Chain", secret: "Secret", iac: "IAC",
+  container: "Container",
+  // status (source + effective) and triage
+  open: "Open", fixed: "Fixed", resolved: "Resolved", suppressed: "Suppressed",
+  accepted_risk: "Accepted Risk", false_positive: "False Positive",
+  snoozed: "Snoozed", active: "Active",
+  // severity
+  critical: "Critical", high: "High", medium: "Medium", low: "Low", info: "Info",
+  // asset type
+  host: "Host", cloud_resource: "Cloud Resource", repository: "Repository",
+  container_image: "Container Image", package: "Package", web_app: "Web App",
+  unknown: "Unknown",
+};
+// Pretty label for an enum value; falls back to Title Case (underscores → spaces).
+function pretty(v) {
+  if (v == null || v === "") return v ?? "";
+  const k = String(v).toLowerCase();
+  return LABELS[k] || k.split(/[_\s]+/)
+    .map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(" ");
+}
+window.pretty = pretty; window.LABELS = LABELS;
+
 // "Sync all connectors" — shared by the Overview and Connectors pages.
 async function syncAll(btn, onDone) {
   const label = btn.textContent;

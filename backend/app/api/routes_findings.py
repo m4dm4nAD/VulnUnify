@@ -18,12 +18,14 @@ from backend.app.models.finding import Finding
 from backend.app.models.user import User
 from backend.app.schemas.finding import (
     FindingDetail,
+    FindingGroupPage,
     FindingOut,
     FindingPage,
     StatsOut,
     TriageIn,
 )
 from backend.app.schemas.user import AssignIn
+from backend.app.services import correlation
 from backend.app.services.lifecycle import apply_lifecycle
 
 router = APIRouter(prefix="/api", tags=["findings"])
@@ -64,6 +66,36 @@ def _overdue_clause():
     )
 
 
+def _apply_filters(
+    stmt, actor, *, source, category, severity, effective_status,
+    triage_state, assigned_to, overdue, q,
+):
+    """Apply the shared findings filters (used by both the flat list and groups)."""
+    if source:
+        stmt = stmt.where(Finding.source == source)
+    if category:
+        stmt = stmt.where(Finding.category == category)
+    if severity:
+        stmt = stmt.where(Finding.severity == severity)
+    if effective_status == "suppressed":
+        stmt = stmt.where(Finding.effective_status.in_(_SUPPRESSED))
+    elif effective_status:
+        stmt = stmt.where(Finding.effective_status == effective_status)
+    if triage_state:
+        stmt = stmt.where(Finding.triage_state == triage_state)
+    if assigned_to is not None and actor.role in SECURITY_ROLES:
+        stmt = stmt.where(Finding.assigned_user_id == assigned_to)
+    if overdue:
+        stmt = stmt.where(_overdue_clause())
+    if q:
+        stmt = stmt.where(Finding.title.ilike(f"%{q}%"))
+    return stmt
+
+
+# Safety cap on how many findings the read-time grouping loads in one request.
+_GROUP_SCAN_CAP = 5000
+
+
 @router.get("/findings", response_model=FindingPage)
 def list_findings(
     db: Session = Depends(get_db),
@@ -83,24 +115,11 @@ def list_findings(
 ):
     """List findings (devs see only their assigned ones), critical-first by default."""
     stmt = select(Finding).options(*_LOADS).where(_scope(actor))
-    if source:
-        stmt = stmt.where(Finding.source == source)
-    if category:
-        stmt = stmt.where(Finding.category == category)
-    if severity:
-        stmt = stmt.where(Finding.severity == severity)
-    if effective_status == "suppressed":
-        stmt = stmt.where(Finding.effective_status.in_(_SUPPRESSED))
-    elif effective_status:
-        stmt = stmt.where(Finding.effective_status == effective_status)
-    if triage_state:
-        stmt = stmt.where(Finding.triage_state == triage_state)
-    if assigned_to is not None and actor.role in SECURITY_ROLES:
-        stmt = stmt.where(Finding.assigned_user_id == assigned_to)
-    if overdue:
-        stmt = stmt.where(_overdue_clause())
-    if q:
-        stmt = stmt.where(Finding.title.ilike(f"%{q}%"))
+    stmt = _apply_filters(
+        stmt, actor, source=source, category=category, severity=severity,
+        effective_status=effective_status, triage_state=triage_state,
+        assigned_to=assigned_to, overdue=overdue, q=q,
+    )
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
 
@@ -111,6 +130,46 @@ def list_findings(
     stmt = stmt.order_by(col.desc() if descending else col.asc(), Finding.id.desc())
     rows = db.scalars(stmt.limit(limit).offset(offset)).all()
     return FindingPage(total=total or 0, limit=limit, offset=offset, items=rows)
+
+
+@router.get("/findings/groups", response_model=FindingGroupPage)
+def list_finding_groups(
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_user),
+    source: str | None = None,
+    category: str | None = None,
+    severity: str | None = None,
+    effective_status: str | None = None,
+    triage_state: str | None = None,
+    assigned_to: int | None = Query(None, description="filter by assignee (security only)"),
+    overdue: bool | None = Query(None, description="only SLA-breached open findings"),
+    q: str | None = Query(None, description="substring match on title"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """Findings collapsed into correlated groups (same vulnerability, many rows).
+
+    Grouping is computed over the whole filtered set — not per page — so a
+    duplicate can't be split across page boundaries; pagination is then applied to
+    the groups. Every underlying finding is preserved as a group member.
+    """
+    stmt = select(Finding).options(*_LOADS).where(_scope(actor))
+    stmt = _apply_filters(
+        stmt, actor, source=source, category=category, severity=severity,
+        effective_status=effective_status, triage_state=triage_state,
+        assigned_to=assigned_to, overdue=overdue, q=q,
+    )
+    findings = db.scalars(stmt.order_by(Finding.id).limit(_GROUP_SCAN_CAP)).all()
+
+    groups = correlation.group_findings(findings)
+    # Worst severity first, then the biggest clusters — mirrors the flat list's
+    # critical-first default while surfacing the most-duplicated issues.
+    groups.sort(
+        key=lambda g: (correlation.SEV_RANK.get(g["severity"], 0), g["count"]),
+        reverse=True,
+    )
+    page = groups[offset:offset + limit]
+    return FindingGroupPage(total=len(groups), limit=limit, offset=offset, items=page)
 
 
 def _load_for_actor(db: Session, finding_id: int, actor: User) -> Finding:
@@ -200,9 +259,22 @@ def stats(db: Session = Depends(get_db), actor: User = Depends(require_user)):
     else:
         total_assets = db.scalar(select(func.count()).select_from(Asset))
 
+    # De-dup metrics: distinct correlation keys over the in-scope findings. Read
+    # only the key fields (not whole rows) and fold them in Python.
+    total_findings = count()
+    key_rows = db.execute(
+        select(
+            Finding.asset_id, Finding.cve_ids, Finding.cwe_ids,
+            Finding.location, Finding.fingerprint,
+        ).where(scope)
+    ).all()
+    unique_vulns = len({correlation.correlation_key_fields(*r) for r in key_rows})
+
     return StatsOut(
-        total_findings=count(),
+        total_findings=total_findings,
         total_assets=total_assets or 0,
+        unique_vulnerabilities=unique_vulns,
+        duplicate_findings=total_findings - unique_vulns,
         open_findings=count(open_only),
         resolved_findings=count(Finding.effective_status == "resolved"),
         suppressed_findings=count(Finding.effective_status.in_(_SUPPRESSED)),

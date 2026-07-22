@@ -77,6 +77,32 @@ class FindingPage(BaseModel):
     items: list[FindingOut]
 
 
+class FindingGroup(BaseModel):
+    """A set of findings correlated as one logical vulnerability (see services/correlation)."""
+    key: str
+    title: str                     # representative (highest-severity member) title
+    severity: str                  # worst severity across members
+    effective_status: str          # "open" if any member is open, else representative's
+    count: int                     # findings in the group
+    duplicate_count: int           # count - 1 (extra rows beyond the first)
+    open_count: int
+    sources: list[str]             # distinct sources contributing
+    categories: list[str]
+    cve_ids: list[str]             # union across members
+    first_seen: datetime | None
+    last_seen: datetime | None
+    sla_breached: bool
+    representative_id: int         # finding id to open for detail
+    members: list[FindingOut]      # every underlying finding, preserved
+
+
+class FindingGroupPage(BaseModel):
+    total: int                     # number of groups (not findings)
+    limit: int
+    offset: int
+    items: list[FindingGroup]
+
+
 class ConnectorStatus(BaseModel):
     name: str
     category: str
@@ -128,6 +154,9 @@ class StatsOut(BaseModel):
     resolved_findings: int
     suppressed_findings: int       # false_positive + accepted_risk + snoozed
     sla_breached: int
+    # De-duplication: distinct logical vulnerabilities vs. how many rows are dupes.
+    unique_vulnerabilities: int
+    duplicate_findings: int        # total_findings - unique_vulnerabilities
     # The breakdowns below count OPEN findings only (what's actionable).
     by_severity: dict[str, int]
     by_category: dict[str, int]

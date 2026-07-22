@@ -33,25 +33,27 @@
     </section>
 
     <section>
-      <h2>Findings</h2>
+      <h2>Findings <span id="dupCaption" class="dup-caption"></span></h2>
       <div class="filters">
         <select id="fStatus"><option value="open">Open</option>
           <option value="">All statuses</option>
           <option value="resolved">Resolved</option>
           <option value="suppressed">Suppressed</option>
-          <option value="accepted_risk">Accepted risk</option>
-          <option value="false_positive">False positive</option>
+          <option value="accepted_risk">Accepted Risk</option>
+          <option value="false_positive">False Positive</option>
           <option value="snoozed">Snoozed</option></select>
         <select id="fSeverity"><option value="">All severities</option>
-          <option>critical</option><option>high</option><option>medium</option>
-          <option>low</option><option>info</option></select>
+          <option value="critical">Critical</option><option value="high">High</option>
+          <option value="medium">Medium</option><option value="low">Low</option>
+          <option value="info">Info</option></select>
         <select id="fCategory"><option value="">All categories</option>
-          <option value="vulnerability">vulnerability</option>
-          <option value="cloud_posture">cloud_posture</option>
-          <option value="sast">sast</option><option value="sca">sca</option>
-          <option value="supply_chain">supply_chain</option><option value="container">container</option>
-          <option value="secret">secret</option><option value="iac">iac</option></select>
+          <option value="vulnerability">Vulnerability</option>
+          <option value="cloud_posture">Cloud Posture</option>
+          <option value="sast">SAST</option><option value="sca">SCA</option>
+          <option value="supply_chain">Supply Chain</option><option value="container">Container</option>
+          <option value="secret">Secret</option><option value="iac">IAC</option></select>
         <label><input type="checkbox" id="fOverdue" /> SLA breached only</label>
+        <label><input type="checkbox" id="fGroup" /> Group duplicates</label>
         <input id="fQ" placeholder="search title…" />
       </div>
       <div class="table-card">
@@ -153,7 +155,7 @@
       const cat = Object.entries(byCat);
       draw("categoryChart", {
         type: "bar",
-        data: { labels: cat.map(([k]) => k),
+        data: { labels: cat.map(([k]) => pretty(k)),
           datasets: [{ data: cat.map(([, v]) => v), backgroundColor: C.low, borderRadius: 3 }] },
         options: { ...baseBar, scales: { x: noGrid, y: { beginAtZero: true, ticks: { precision: 0 } } } },
       });
@@ -190,6 +192,10 @@
           onclick="applyCardFilter(${i})">
           <div class="n">${n}</div><div class="l">${l}</div></div>`
       ).join("");
+      const dupEl = document.getElementById("dupCaption");
+      if (dupEl) dupEl.textContent = s.duplicate_findings > 0
+        ? `${s.total_findings} findings · ${s.unique_vulnerabilities} unique · ${s.duplicate_findings} duplicate`
+        : `${s.total_findings} findings · no duplicates`;
       loadCharts(s);
     }
 
@@ -221,38 +227,96 @@
     let sortField = "severity", sortOrder = "desc", page = 0;
     const pageSize = () => parseInt(fPageSize.value, 10) || 50;
 
-    async function loadFindings() {
+    // Shared filter params (used by both the flat list and the grouped view).
+    function buildParams() {
       const p = new URLSearchParams();
       if (fStatus.value) p.set("effective_status", fStatus.value);
       if (fSeverity.value) p.set("severity", fSeverity.value);
       if (fCategory.value) p.set("category", fCategory.value);
       if (fOverdue.checked) p.set("overdue", "true");
       if (fQ.value) p.set("q", fQ.value);
+      return p;
+    }
+
+    const EMPTY_ROW = `<tr><td colspan="8" class="muted">No findings — adjust filters or run a sync.</td></tr>`;
+
+    // One flat finding row. `indent` styles it as an expanded group member.
+    function findingRow(f, indent = false) {
+      const age = f.age_days == null ? "—" : `${f.age_days}d`;
+      const od = daysOverdue(f);
+      // Outside SLA: show just how many days over. Otherwise: show the age.
+      const top = od == null ? age
+        : `<span class="pill sla" title="SLA due ${fmtDate(f.sla_due_at)}">SLA +${od}d</span>`;
+      const opts = Object.entries(TRIAGE).map(([v, l]) =>
+        `<option value="${v}" ${v === f.triage_state ? "selected" : ""}>${l}</option>`).join("");
+      const asset = f.asset?.name || f.asset?.identifier || "—";
+      const ind = indent ? " indent" : "";
+      return `
+        <td class="sev-cell"><span class="rail sev-${f.severity}"></span></td>
+        <td><div class="f-title${ind}"><span class="link cell-title" title="${esc(f.title)}" onclick="openFinding(${f.id})">${esc(f.title)}</span></div>
+            <div class="f-sub${ind}"><span class="src">${esc(f.source)}</span> · found ${shortDate(f.first_seen)}</div></td>
+        <td class="mono-cell">${esc(asset)}</td>
+        <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
+        <td><span class="pill st-${f.effective_status}">${(f.effective_status || "").replace('_', ' ')}</span></td>
+        <td>${top}</td>
+        <td>${assigneeCell(f)}</td>
+        <td><select onchange="triage(${f.id}, this.value)">${opts}</select></td>`;
+    }
+
+    async function loadFindings() {
+      if (fGroup.checked) return loadGroups();
+      const p = buildParams();
       p.set("sort", sortField); p.set("order", sortOrder);
       p.set("limit", pageSize()); p.set("offset", page * pageSize());
       const data = await api("/api/findings?" + p.toString());
       renderPager(data.total || 0, data.limit, data.offset);
-      document.getElementById("findings").innerHTML = (data.items || []).map(f => {
-        const age = f.age_days == null ? "—" : `${f.age_days}d`;
-        const od = daysOverdue(f);
-        // Outside SLA: show just how many days over. Otherwise: show the age.
-        const top = od == null ? age
-          : `<span class="pill sla" title="SLA due ${fmtDate(f.sla_due_at)}">SLA +${od}d</span>`;
-        const opts = Object.entries(TRIAGE).map(([v, l]) =>
-          `<option value="${v}" ${v === f.triage_state ? "selected" : ""}>${l}</option>`).join("");
-        const asset = f.asset?.name || f.asset?.identifier || "—";
-        return `<tr>
-          <td class="sev-cell"><span class="rail sev-${f.severity}"></span></td>
-          <td><div class="f-title"><span class="link cell-title" title="${esc(f.title)}" onclick="openFinding(${f.id})">${esc(f.title)}</span></div>
-              <div class="f-sub"><span class="src">${esc(f.source)}</span> · found ${shortDate(f.first_seen)}</div></td>
-          <td class="mono-cell">${esc(asset)}</td>
-          <td><span class="pill sev-${f.severity}">${f.severity}</span></td>
-          <td><span class="pill st-${f.effective_status}">${(f.effective_status || "").replace('_', ' ')}</span></td>
-          <td>${top}</td>
-          <td>${assigneeCell(f)}</td>
-          <td><select onchange="triage(${f.id}, this.value)">${opts}</select></td></tr>`;
-      }).join("") || `<tr><td colspan="8" class="muted">No findings — adjust filters or run a sync.</td></tr>`;
+      document.getElementById("findings").innerHTML =
+        (data.items || []).map(f => `<tr>${findingRow(f)}</tr>`).join("") || EMPTY_ROW;
       updateSortHeaders();
+    }
+
+    // Grouped view: correlated duplicates collapse into one expandable row.
+    async function loadGroups() {
+      const p = buildParams();
+      p.set("limit", pageSize()); p.set("offset", page * pageSize());
+      const data = await api("/api/findings/groups?" + p.toString());
+      renderPager(data.total || 0, data.limit, data.offset);
+      document.getElementById("findings").innerHTML =
+        (data.items || []).map((g, i) => groupRow(g, i)).join("") || EMPTY_ROW;
+      updateSortHeaders();
+    }
+
+    function groupRow(g, gi) {
+      const multi = g.count > 1;
+      const asset = g.members[0]?.asset;
+      const assetName = asset?.name || asset?.identifier || "—";
+      const caret = multi
+        ? `<button class="caret" id="cg${gi}" onclick="toggleGroup(${gi})" title="expand duplicates">▸</button>`
+        : `<span class="caret-sp"></span>`;
+      const badge = multi
+        ? `<span class="dupbadge" title="${g.count} correlated findings">×${g.count}</span>` : "";
+      const cveline = g.cve_ids.length ? " · " + esc(g.cve_ids.join(", ")) : "";
+      const head = `<tr class="grp-head">
+        <td class="sev-cell"><span class="rail sev-${g.severity}"></span></td>
+        <td><div class="f-title">${caret}<span class="link cell-title" title="${esc(g.title)}" onclick="openFinding(${g.representative_id})">${esc(g.title)}</span>${badge}</div>
+            <div class="f-sub"><span class="src">${esc(g.sources.join(", "))}</span>${cveline}</div></td>
+        <td class="mono-cell">${esc(assetName)}</td>
+        <td><span class="pill sev-${g.severity}">${g.severity}</span></td>
+        <td><span class="pill st-${g.effective_status}">${(g.effective_status || "").replace('_', ' ')}</span></td>
+        <td>${g.first_seen ? shortDate(g.first_seen) : "—"}</td>
+        <td class="muted grp-open">${g.open_count}/${g.count} open</td>
+        <td></td></tr>`;
+      const members = multi
+        ? g.members.map(m => `<tr class="grp-member" data-grp="${gi}" hidden>${findingRow(m, true)}</tr>`).join("")
+        : "";
+      return head + members;
+    }
+
+    function toggleGroup(gi) {
+      const caret = document.getElementById("cg" + gi);
+      const open = caret && caret.textContent === "▸";
+      document.querySelectorAll(`tr.grp-member[data-grp="${gi}"]`).forEach(r => (r.hidden = !open));
+      if (caret) caret.textContent = open ? "▾" : "▸";
     }
 
     function renderPager(total, limit, offset) {
@@ -317,7 +381,7 @@
         ? `<a class="link" href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>` : esc(u)).join("<br>");
       const loc = f.location && Object.keys(f.location).length ? esc(JSON.stringify(f.location)) : "";
       const triage = f.triage_state !== "active"
-        ? esc(f.triage_state) + (f.triage_reason ? " — " + esc(f.triage_reason) : "")
+        ? esc(pretty(f.triage_state)) + (f.triage_reason ? " — " + esc(f.triage_reason) : "")
           + (f.triaged_by ? " by " + esc(f.triaged_by) : "") : "";
       const block = (label, html) => html
         ? `<div class="dblock"><div class="dk">${esc(label)}</div><div class="dtext">${html}</div></div>` : "";
@@ -326,13 +390,13 @@
         <div class="dpills">
           <span class="pill sev-${f.severity}">${f.severity}</span>
           <span class="pill st-${f.effective_status}">${(f.effective_status || "").replace('_', ' ')}</span>
-          <span class="muted">${esc(f.source)} · ${esc(f.category)}</span>
+          <span class="muted">${esc(f.source)} · ${esc(pretty(f.category))}</span>
           ${f.sla_breached ? '<span class="pill sla">SLA</span>' : ''}
         </div>
         <div class="dsec">
           ${drow("Asset", esc(a.name || a.identifier || "—"))}
           ${a.name ? drow("Asset ID", esc(a.identifier)) : ""}
-          ${drow("Type", esc(a.asset_type))}
+          ${drow("Type", esc(pretty(a.asset_type)))}
           ${a.cloud_provider ? drow("Cloud", esc(a.cloud_provider) + (a.region ? " / " + esc(a.region) : "")) : ""}
           ${drow("CVEs", esc((f.cve_ids || []).join(", ")))}
           ${drow("CWEs", esc((f.cwe_ids || []).join(", ")))}
@@ -345,7 +409,7 @@
           ${drow("First seen", dt(f.first_seen))}
           ${drow("Last seen", dt(f.last_seen))}
           ${drow("Resolved", dt(f.resolved_at))}
-          ${drow("Source status", esc(f.source_status))}
+          ${drow("Source status", esc(pretty(f.source_status)))}
           ${drow("Triage", triage)}
         </div>
         ${block("Description", esc(f.description))}
@@ -376,6 +440,8 @@
     syncBtn.onclick = () => syncAll(syncBtn, refresh);
     [fStatus, fSeverity, fCategory].forEach(el => el.onchange = onFilterChange);
     fOverdue.onchange = onFilterChange;
+    // Toggling grouping just re-renders the table (keeps filters + active card).
+    fGroup.onchange = () => { page = 0; loadFindings(); };
     fQ.oninput = () => { clearTimeout(window._t); window._t = setTimeout(onFilterChange, 300); };
     fPageSize.onchange = () => { page = 0; loadFindings(); };
     prevPage.onclick = () => { if (page > 0) { page--; loadFindings(); } };

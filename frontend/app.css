@@ -326,3 +326,19 @@ body.login { display: flex; align-items: center; justify-content: center; min-he
   .content, .topbar { padding-left: 16px; padding-right: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---- Duplicate correlation (grouped findings view) ---------------------- */
+.dup-caption { font-size: 13px; font-weight: 400; color: var(--text-faint); margin-left: 8px; }
+/* Expand/collapse caret on a group head row. */
+.caret { background: none; border: 0; color: var(--text-muted); cursor: pointer;
+  font-size: 11px; width: 16px; padding: 0; margin-right: 4px; line-height: 1; vertical-align: middle; }
+.caret:hover { color: var(--text); }
+.caret-sp { display: inline-block; width: 20px; }   /* aligns singleton groups with expandable ones */
+/* "×N" duplicate-count badge, mirroring the .chip.on treatment. */
+.dupbadge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
+  font: 650 11px/1.5 var(--sans); color: var(--accent); background: var(--accent-weak);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); vertical-align: middle; }
+.grp-open { font-size: 12px; white-space: nowrap; }
+/* Expanded member rows: subtly inset from their group head. */
+tr.grp-member > td { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.f-title.indent, .f-sub.indent { padding-left: 22px; }

@@ -49,32 +49,42 @@ through one API + dashboard.
 | SonarQube            | sast            | REST       | ✅ reference |
 | Trend Vision One     | cloud_posture   | REST       | ✅ reference |
 | Aikido               | sast/sca/secret | REST       | ✅ reference |
+| OSV.dev              | sca/supply_chain| REST       | ✅ reference |
+| Snyk                 | container       | REST       | ✅ reference |
 
-All eight connectors are implemented. Each is verified against representative API
+All ten connectors are implemented. Each is verified against representative API
 response shapes (normalization + ingest), but not yet against a live tenant — add
 credentials in `.env` and run `POST /api/sync/{name}` for the first real pull.
-Aikido picks its category per issue (`sast`/`sca`/`secret`/`iac`/`cloud`); the
-others use a fixed category.
+OSV needs no credentials (public API). Aikido picks its category per issue
+(`sast`/`sca`/`secret`/`iac`/`cloud`); the others use a fixed category.
 
 ## Run it
 
 ```bash
-cp .env.example .env        # fill in credentials for the tools you use
+cp .env.example .env        # then edit it (see below)
 docker compose up --build   # runs migrations, starts Postgres + API
 ```
+
+Before the first run, set in `.env`:
+
+- **`INITIAL_ADMIN_PASSWORD`** — the password for the `admin` account created on first
+  startup, so you can log in. If you leave it blank, a random one is generated and
+  printed once in the logs: `docker compose logs api | grep seeded_admin`.
+- **Connector credentials** — only for the tools you use; blank ones are skipped. You
+  can start with none and still explore the (empty) dashboard.
+
+Then open the dashboard and **log in as `admin`**:
 
 - Dashboard: http://localhost:8000 (the API serves the static `frontend/` at `/`)
 - API docs (OpenAPI): http://localhost:8000/docs
 
 A connector with no credentials is reported as **unconfigured** and skipped — so you
-can start with just one tool and add the rest later.
+can start with just one tool (or none) and add the rest later.
 
 > **Picking up code changes.** The image bakes in `backend/` and `frontend/` (no
 > source bind-mount / live reload in the container), so after editing either, rebuild:
 > `docker compose up -d --build`. For live reload while iterating, run the API
 > outside Docker instead — see [Local dev (without Docker)](#local-dev-without-docker).
-> (A host bind-mount can't be used when the project path contains a `:`, which Docker
-> rejects in volume specs.)
 
 ### Scheduled syncing
 
@@ -84,17 +94,24 @@ threaded APScheduler job runs `sync_all` in its own DB session and never overlap
 itself. Check it at `GET /api/sync/schedule`:
 
 ```bash
-curl http://localhost:8000/api/sync/schedule
+curl -b cookies.txt http://localhost:8000/api/sync/schedule
 # {"enabled": true, "interval_minutes": 360, "running": true, "next_run_at": "..."}
 ```
 
 ### Trigger a sync
 
+The API requires an authenticated session, so log in once and reuse the cookie:
+
 ```bash
-curl -X POST http://localhost:8000/api/sync            # all configured connectors
-curl -X POST http://localhost:8000/api/sync/tenable    # just one
-curl http://localhost:8000/api/findings?severity=critical
-curl http://localhost:8000/api/stats
+# log in (uses INITIAL_ADMIN_PASSWORD from your .env)
+curl -c cookies.txt -X POST http://localhost:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"<your admin password>"}'
+
+curl -b cookies.txt -X POST http://localhost:8000/api/sync         # all configured connectors
+curl -b cookies.txt -X POST http://localhost:8000/api/sync/tenable # just one
+curl -b cookies.txt "http://localhost:8000/api/findings?severity=critical"
+curl -b cookies.txt http://localhost:8000/api/stats
 ```
 
 ## Adding a connector
