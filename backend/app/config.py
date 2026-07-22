@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     sla_medium_days: int = 90
     sla_low_days: int = 180
 
+    # --- Notifications (Slack-compatible incoming webhook; empty = disabled) ---
+    notify_slack_webhook_url: str = ""
+    # Open findings at/above this risk score (0..100) trigger a "high risk" alert.
+    notify_risk_threshold: int = 80
+
     # --- Threat intelligence feeds (defaults ship enabled; both are free/no-auth) ---
     kev_feed_url: str = (
         "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"

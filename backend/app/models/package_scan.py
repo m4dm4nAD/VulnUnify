@@ -30,13 +30,14 @@ class PackageScan(Base):
 
     filename: Mapped[str] = mapped_column(String(512))
 
-    checked: Mapped[int] = mapped_column(Integer, default=0)       # packages with an exact version
-    vulnerable: Mapped[int] = mapped_column(Integer, default=0)    # of those, how many had >=1 vuln
-    total_vulns: Mapped[int] = mapped_column(Integer, default=0)
+    # packages with an exact version / of those, how many had >=1 vuln
+    checked: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    vulnerable: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    total_vulns: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
-    ecosystems: Mapped[list] = mapped_column(JSONB, default=list)
+    ecosystems: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
     # The packages that were searched: [{ecosystem, name, version, vuln_count}].
-    packages: Mapped[list] = mapped_column(JSONB, default=list)
+    packages: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True

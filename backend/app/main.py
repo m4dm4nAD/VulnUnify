@@ -21,6 +21,7 @@ from backend.app.api import (
     routes_findings,
     routes_intel,
     routes_lifecycle,
+    routes_notifications,
     routes_packages,
     routes_settings,
     routes_sync,
@@ -127,6 +128,7 @@ app.include_router(routes_intel.router, dependencies=_security)
 app.include_router(routes_assets.router, dependencies=_security)
 app.include_router(routes_lifecycle.router, dependencies=_security)
 app.include_router(routes_settings.router, dependencies=_security)
+app.include_router(routes_notifications.router, dependencies=_security)
 # Packages: only /scan is open to all logged-in users (self-service dep check);
 # watchlist import/list/delete enforce require_security per-route.
 app.include_router(routes_packages.router, dependencies=_logged_in)

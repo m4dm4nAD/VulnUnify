@@ -8,7 +8,7 @@
   <script src="/app.js"></script>
 </head>
 <body>
-  <div id="view" data-page="connectors" data-title="Connectors &amp; Settings" data-subtitle="Sources, sync schedule, and SLA policy">
+  <div id="view" data-page="connectors" data-title="Connectors &amp; Settings" data-subtitle="Sources, sync schedule, SLA policy, and notifications">
     <div data-actions>
       <button id="syncBtn" class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg>Sync all connectors</button>
     </div>
@@ -30,6 +30,11 @@
     <section>
       <h2>SLA policy <span class="muted" style="text-transform:none">— days from first seen, by severity</span></h2>
       <div id="sla"></div>
+    </section>
+
+    <section>
+      <h2>Notifications <span class="muted" style="text-transform:none">— Slack-compatible webhook, digest per sync</span></h2>
+      <div id="notify"></div>
     </section>
   </div>
 
@@ -132,6 +137,58 @@
       loadSettings();
     }
 
+    // ---- notifications ----
+    async function loadNotify() {
+      const n = await api("/api/notifications");
+      const el = document.getElementById("notify");
+      const cards = `<div class="kv" style="margin-top:8px">
+        ${card(n.webhook_display ?? "Not configured", "Webhook")}
+        ${card(n.risk_threshold > 0 ? "risk ≥ " + n.risk_threshold : "off", "High-risk rule")}
+        ${card(n.sent_total, "Alerts sent")}
+        ${card(fmtDate(n.last_sent_at), "Last sent")}</div>`;
+      if (!isAdmin()) { el.innerHTML = cards; return; }
+      el.innerHTML = `<div class="filters">
+        <label class="muted" style="font-size:13px">Webhook URL
+          <input id="ntWebhook" type="text" style="width:290px" autocomplete="off" spellcheck="false"
+            placeholder="${n.configured ? "configured — leave blank to keep" : "https://hooks.slack.com/services/…"}"></label>
+        <label class="muted" style="font-size:13px">Alert at risk ≥
+          <input id="ntThreshold" type="number" min="0" max="100" value="${n.risk_threshold}" style="width:70px"></label>
+        <span class="muted" style="font-size:12px">(0 disables)</span>
+        <button class="mini" data-primary onclick="saveNotify()">Save</button>
+        <button class="mini" onclick="testNotify(this)">Send test</button>
+        <button class="mini" onclick="runNotify(this)">Run now</button>
+        ${n.configured ? `<button class="mini" onclick="clearNotify()">Clear webhook</button>` : ""}
+        <span id="ntMsg" class="muted"></span></div>${cards}`;
+    }
+    async function saveNotify() {
+      const url = document.getElementById("ntWebhook").value.trim();
+      const v = parseInt(document.getElementById("ntThreshold").value, 10);
+      const body = { risk_threshold: isNaN(v) ? 0 : v };
+      if (url) body.webhook_url = url;  // blank keeps the stored secret (like connector creds)
+      document.getElementById("ntMsg").textContent = "Saving…";
+      try { await api("/api/notifications/settings", { method: "PUT", json: body }); }
+      finally { loadNotify(); }
+    }
+    async function clearNotify() {
+      if (!confirm("Remove the stored webhook URL and disable notifications?")) return;
+      await api("/api/notifications/settings", { method: "PUT", json: { webhook_url: "" } });
+      loadNotify();
+    }
+    async function testNotify(btn) {
+      btn.disabled = true;
+      try { await api("/api/notifications/test", { method: "POST" }); toast("Test notification sent", "success"); }
+      finally { btn.disabled = false; }
+    }
+    async function runNotify(btn) {
+      btn.disabled = true;
+      try {
+        const r = await api("/api/notifications/run", { method: "POST" });
+        if (!r.enabled) toast("No webhook configured", "info");
+        else if (!r.sent) toast("Nothing new to alert on", "info");
+        else toast(`Alerted on ${r.sent} finding${r.sent === 1 ? "" : "s"}`, "success");
+      } finally { btn.disabled = false; loadNotify(); }
+    }
+
     // ---- connector configure modal ----
     let cfgState = null;
     async function openConfig(name) {
@@ -178,7 +235,7 @@
     }
 
     syncBtn.onclick = () => syncAll(syncBtn, loadConnectors);
-    requireRole("security").then(() => { loadConnectors(); loadSettings(); });
+    requireRole("security").then(() => { loadConnectors(); loadSettings(); loadNotify(); });
   </script>
 </body>
 </html>

@@ -98,6 +98,19 @@ curl -b cookies.txt http://localhost:8000/api/sync/schedule
 # {"enabled": true, "interval_minutes": 360, "running": true, "next_run_at": "..."}
 ```
 
+### Notifications
+
+Point `NOTIFY_SLACK_WEBHOOK_URL` at a Slack-compatible incoming webhook (or set it
+from the Connectors & Settings page — stored encrypted) and each scheduler tick
+posts one digest covering, per finding at most once each:
+
+- **high risk** — open findings with risk score ≥ `NOTIFY_RISK_THRESHOLD` (default 80)
+- **KEV** — open findings matching a CISA known-exploited CVE
+- **SLA breach** — open findings past their SLA deadline
+
+`POST /api/notifications/test` verifies the webhook; `POST /api/notifications/run`
+evaluates the rules immediately instead of waiting for the next sync.
+
 ### Trigger a sync
 
 The API requires an authenticated session, so log in once and reuse the cookie:

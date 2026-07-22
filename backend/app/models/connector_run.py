@@ -15,7 +15,7 @@ class ConnectorRun(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     connector: Mapped[str] = mapped_column(String(64), index=True)
     status: Mapped[str] = mapped_column(String(16))  # success | error | skipped
-    findings_count: Mapped[int] = mapped_column(Integer, default=0)
+    findings_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     error: Mapped[str | None] = mapped_column(Text)
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

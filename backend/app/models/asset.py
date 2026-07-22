@@ -20,11 +20,13 @@ class Asset(Base, TimestampMixin):
     name: Mapped[str | None] = mapped_column(String(512))
     cloud_provider: Mapped[str | None] = mapped_column(String(32))
     region: Mapped[str | None] = mapped_column(String(64))
-    asset_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    asset_metadata: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
 
     # Business criticality — tilts the risk score (a KEV vuln on a crown-jewel
     # asset outranks the same vuln on a dev box). critical|high|medium|low.
-    criticality: Mapped[str] = mapped_column(String(16), default="medium", index=True)
+    criticality: Mapped[str] = mapped_column(
+        String(16), default="medium", server_default="medium", index=True
+    )
 
     first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
