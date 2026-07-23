@@ -10,6 +10,7 @@ from backend.app.models.finding import Finding
 from backend.app.models.intel_feed import IntelFeed
 from backend.app.models.notification_log import NotificationLog
 from backend.app.models.package_scan import PackageScan
+from backend.app.models.posture_snapshot import PostureSnapshot
 from backend.app.models.session import Session
 from backend.app.models.user import User
 from backend.app.models.watched_package import WatchedPackage
@@ -17,5 +18,5 @@ from backend.app.models.watched_package import WatchedPackage
 __all__ = [
     "Base", "Asset", "Finding", "ConnectorRun", "ConnectorCredential", "User", "Session",
     "WatchedPackage", "PackageScan", "AppSetting", "ErrorLog", "CveIntel", "IntelFeed",
-    "NotificationLog",
+    "NotificationLog", "PostureSnapshot",
 ]

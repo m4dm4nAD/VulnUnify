@@ -15,7 +15,12 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 @router.post("", response_model=list[ConnectorRunOut])
 def sync_everything(db: Session = Depends(get_db)):
-    """Run every configured connector and ingest its findings."""
+    """Run every configured connector and ingest its findings.
+
+    No posture snapshot here: new findings carry in_kev=False / risk_score=0
+    until intel.refresh rescoring runs (scheduler path), so a snapshot at this
+    point would persist systematically under-reported KEV/risk numbers.
+    """
     return sync_all(db)
 
 

@@ -35,6 +35,9 @@ class Finding(Base, TimestampMixin):
 
     # Lifecycle: set when the source stops reporting the finding; cleared on reopen.
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set when a previously-resolved finding is reported active again, so MTTR
+    # measures the recurrence (reopened_at -> resolved_at), not the full lifetime.
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Triage: a local human decision that survives connector re-syncs.
     triage_state: Mapped[str] = mapped_column(

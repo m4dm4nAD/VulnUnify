@@ -33,6 +33,22 @@
       </div>
     </section>
 
+    <section id="trendsSection" hidden>
+      <h2>Trends <span id="trendsCaption" class="muted" style="text-transform:none"></span></h2>
+      <div class="charts">
+        <div class="chart-card wide"><h3>Open findings over time</h3>
+          <div class="chart-wrap"><canvas id="openTrendChart"></canvas></div></div>
+        <div class="chart-card wide"><h3>New vs resolved per week</h3>
+          <div class="chart-wrap"><canvas id="velocityChart"></canvas></div></div>
+        <div class="chart-card"><h3>KEV exposure over time</h3>
+          <div class="chart-wrap"><canvas id="kevTrendChart"></canvas></div></div>
+        <div class="chart-card"><h3>SLA breaches over time</h3>
+          <div class="chart-wrap"><canvas id="slaTrendChart"></canvas></div></div>
+        <div class="chart-card wide"><h3>Mean time to remediate <span id="mttrOverall" class="muted"></span></h3>
+          <div class="chart-wrap"><canvas id="mttrChart"></canvas></div></div>
+      </div>
+    </section>
+
     <section>
       <h2>Findings <span id="dupCaption" class="dup-caption"></span></h2>
       <div class="filters">
@@ -101,16 +117,31 @@
     // charts always match the pills/palette in app.css.
     const cssVar = (name, fallback) =>
       getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-    const SEV_COLOR = { critical: cssVar("--crit"), high: cssVar("--high"),
-      medium: cssVar("--med"), low: cssVar("--low"), info: cssVar("--info") };
-    const C = { accent: cssVar("--accent"), green: cssVar("--green"), crit: cssVar("--crit"),
-      low: cssVar("--low"), info: cssVar("--info"), teal: "#14b8a6" };
+    // Palette is re-read on every draw: app.js applies the saved data-theme
+    // override AFTER this script runs, so values frozen at parse time would
+    // follow the OS scheme, never the user's toggle (see the observer below).
+    let SEV_COLOR, C;
+    function refreshPalette() {
+      SEV_COLOR = { critical: cssVar("--crit"), high: cssVar("--high"),
+        medium: cssVar("--med"), low: cssVar("--low"), info: cssVar("--info") };
+      C = { accent: cssVar("--accent"), green: cssVar("--ok"), crit: cssVar("--crit"),
+        low: cssVar("--low"), info: cssVar("--info"), teal: "#14b8a6",
+        chartAccent: cssVar("--chart-accent"), chartOk: cssVar("--chart-ok"), med: cssVar("--med") };
+      if (window.Chart) {
+        Chart.defaults.color = cssVar("--text-muted");
+        Chart.defaults.borderColor = cssVar("--border-soft");
+      }
+    }
+    refreshPalette();
     if (window.Chart) {   // chart.umd.min.js may fail to load; don't kill the page
-      Chart.defaults.color = cssVar("--muted");
-      Chart.defaults.borderColor = cssVar("--line");
       Chart.defaults.font.family = "system-ui, sans-serif";
       Chart.defaults.plugins.legend.labels.boxWidth = 12;
     }
+    new MutationObserver(() => {
+      refreshPalette();
+      if (window._lastStats) loadCharts(window._lastStats);
+      if (window._lastTrends) renderTrends(window._lastTrends);
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     window.charts = {};
 
     function draw(id, config) {
@@ -172,6 +203,87 @@
       });
     }
 
+    // ---- trends (security roles only; snapshots are org-wide) ----
+    const alpha = (hex, a) => {   // #rrggbb -> rgba() for soft area fills
+      const n = parseInt(hex.slice(1), 16);
+      return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+    };
+    const shortDay = iso => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const lineDs = (label, data, color, fillAlpha = 0, pointRadius = 0) => ({
+      label, data, borderColor: color, borderWidth: 2, tension: 0.3,
+      pointRadius, pointHoverRadius: 5, pointHitRadius: 14,
+      fill: fillAlpha > 0, backgroundColor: fillAlpha > 0 ? alpha(color, fillAlpha) : color,
+    });
+    const lineOpts = (legend) => ({
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: legend ? { position: "bottom" } : { display: false } },
+      scales: {
+        x: { ...noGrid, ticks: { maxTicksLimit: 8, maxRotation: 0, autoSkip: true } },
+        y: { beginAtZero: true, ticks: { precision: 0 } },
+      },
+    });
+
+    async function loadTrends() {
+      if (!window.Chart) return;
+      const t = await api("/api/posture/trends?days=90");
+      window._lastTrends = t;
+      renderTrends(t);
+    }
+
+    function renderTrends(t) {
+      const snaps = t.snapshots || [];
+      // Snapshots are bucketed by UTC day; label with the bucket's date part so
+      // a viewer west of UTC doesn't see duplicate / off-by-one-day labels.
+      const labels = snaps.map(s => shortDay(s.taken_at.slice(0, 10) + "T00:00:00"));
+      const pr = snaps.length < 2 ? 3 : 0;   // a lone point must still be visible
+      document.getElementById("trendsCaption").textContent = snaps.length < 2
+        ? "— history accrues from the first snapshot; charts fill in as syncs run" : "— last 90 days";
+
+      draw("openTrendChart", {
+        type: "line",
+        data: { labels, datasets: [
+          lineDs("Open total", snaps.map(s => s.open_total), C.chartAccent, 0.14, pr),
+          lineDs("Critical", snaps.map(s => s.by_severity.critical), C.crit, 0, pr),
+        ] },
+        options: lineOpts(true),
+      });
+
+      const weeks = t.velocity || [];
+      draw("velocityChart", {
+        type: "bar",
+        data: { labels: weeks.map(w => shortDay(w.week_start + "T00:00:00")), datasets: [
+          { label: "New", data: weeks.map(w => w.new), backgroundColor: C.chartAccent, borderRadius: 3 },
+          { label: "Resolved", data: weeks.map(w => w.resolved), backgroundColor: C.chartOk, borderRadius: 3 },
+        ] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: "bottom" } },
+          scales: { x: noGrid, y: { beginAtZero: true, ticks: { precision: 0 } } } },
+      });
+
+      draw("kevTrendChart", { type: "line",
+        data: { labels, datasets: [lineDs("KEV open", snaps.map(s => s.kev_open), C.crit, 0.14, pr)] },
+        options: lineOpts(false) });
+      draw("slaTrendChart", { type: "line",
+        data: { labels, datasets: [lineDs("SLA breached", snaps.map(s => s.sla_breached_open), C.med, 0.14, pr)] },
+        options: lineOpts(false) });
+
+      const mttr = t.mttr || {};
+      document.getElementById("mttrOverall").textContent =
+        mttr.overall_days != null ? `— ${mttr.overall_days} day average over 90 days` : "— nothing resolved in 90 days";
+      const sevRows = SEV.filter(s => (mttr.by_severity || {})[s]);
+      draw("mttrChart", {
+        type: "bar",
+        data: { labels: sevRows.map(s => s[0].toUpperCase() + s.slice(1)),
+          datasets: [{ data: sevRows.map(s => mttr.by_severity[s].days),
+            backgroundColor: sevRows.map(s => SEV_COLOR[s]), borderRadius: 3 }] },
+        options: { ...baseBar, indexAxis: "y",
+          plugins: { legend: { display: false }, tooltip: { callbacks: {
+            label: c => ` ${c.raw} days (${mttr.by_severity[sevRows[c.dataIndex]].count} resolved)` } } },
+          scales: { x: { beginAtZero: true, title: { display: true, text: "days to resolve" } }, y: noGrid } },
+      });
+    }
+
     // Each card carries the findings filter it applies when clicked.
     const CARD_FILTERS = [
       { status: "open" },
@@ -185,6 +297,7 @@
 
     async function loadStats() {
       const s = await api("/api/stats");
+      window._lastStats = s;
       const sev = s.by_severity || {};
       const cards = [
         ["Open", s.open_findings, false], ["Critical", sev.critical || 0, false],
@@ -457,7 +570,12 @@
       refresh();
     }
 
-    function refresh() { loadStats(); loadFindings(); }
+    function refresh() {
+      loadStats(); loadFindings();
+      // Trends re-render too: velocity/MTTR are computed live from finding
+      // timestamps, so a sync or triage can change them mid-session.
+      if (window._canAssign) loadTrends();
+    }
 
     // A manual filter change resets to page 1 and drops the active-card highlight.
     function onFilterChange() {
@@ -495,8 +613,9 @@
       window._canAssign = me.role !== "dev";
       if (window._canAssign) {
         try { window._USERS = await api("/api/users"); } catch { window._USERS = []; }
+        document.getElementById("trendsSection").hidden = false;
       }
-      refresh();
+      refresh();   // includes loadTrends() for security roles
     })();
   </script>
 </body>

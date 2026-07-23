@@ -22,6 +22,9 @@
   --crit:#d63a3f; --high:#e2670a; --med:#c2891a; --low:#2f5fc0; --info:#6f7a8c;
   /* status */
   --ok:#14a06e; --warn:#c2891a; --off:#97a1b1;
+  /* chart series steps — same hues as accent/ok, validated per theme for
+     chart marks (dark uses darker steps; brand tints are too light there) */
+  --chart-accent:#2f6fe0; --chart-ok:#14a06e;
 
   --shadow: 0 1px 2px rgba(16,23,34,.06), 0 8px 24px rgba(16,23,34,.05);
   --radius: 10px;
@@ -36,6 +39,7 @@
     --accent:#5aa2ff; --accent-ink:#06101f; --accent-weak:#132132;
     --crit:#ef5350; --high:#f97316; --med:#f4b23e; --low:#4f8ff7; --info:#78859a;
     --ok:#37c390; --warn:#f4b23e; --off:#4a5666;
+    --chart-accent:#3f7fd6; --chart-ok:#23926a;
     --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.4);
   }
 }
@@ -45,6 +49,7 @@
   --accent:#2f6fe0; --accent-ink:#ffffff; --accent-weak:#e8f0fd;
   --crit:#d63a3f; --high:#e2670a; --med:#c2891a; --low:#2f5fc0; --info:#6f7a8c;
   --ok:#14a06e; --warn:#c2891a; --off:#97a1b1;
+  --chart-accent:#2f6fe0; --chart-ok:#14a06e;
   --shadow:0 1px 2px rgba(16,23,34,.06), 0 8px 24px rgba(16,23,34,.05);
 }
 :root[data-theme="dark"] {
@@ -53,6 +58,7 @@
   --accent:#5aa2ff; --accent-ink:#06101f; --accent-weak:#132132;
   --crit:#ef5350; --high:#f97316; --med:#f4b23e; --low:#4f8ff7; --info:#78859a;
   --ok:#37c390; --warn:#f4b23e; --off:#4a5666;
+  --chart-accent:#3f7fd6; --chart-ok:#23926a;
   --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.4);
 }
 

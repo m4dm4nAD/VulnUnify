@@ -11,7 +11,7 @@ import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from backend.app.db import SessionLocal
-from backend.app.services import app_settings, intel, notifications
+from backend.app.services import app_settings, intel, notifications, posture
 from backend.app.services.ingest import sync_all
 from backend.app.services.lifecycle import recompute_all
 
@@ -39,6 +39,11 @@ def run_scheduled_sync() -> None:
             notifications.run(db)
         except Exception as exc:  # noqa: BLE001 — a down webhook must not kill the sync
             log.warning("scheduler.notify_failed", error=str(exc))
+        # Record posture history (throttled to one snapshot/hour internally).
+        try:
+            posture.take_snapshot(db)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("scheduler.snapshot_failed", error=str(exc))
         log.info("scheduler.sync_done", connectors=len(runs), findings=synced)
     except Exception as exc:  # noqa: BLE001 — never let a bad run kill the scheduler thread
         log.error("scheduler.sync_failed", error=str(exc))
@@ -64,9 +69,22 @@ def _set_job(interval: int) -> None:
     )
 
 
+def _startup_snapshot() -> None:
+    """One-shot boot job: record posture without blocking startup (throttled)."""
+    db = SessionLocal()
+    try:
+        posture.take_snapshot(db)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("scheduler.startup_snapshot_failed", error=str(exc))
+    finally:
+        db.close()
+
+
 def start_scheduler() -> None:
     interval = app_settings.get("sync_interval_minutes")
     _set_job(interval)
+    scheduler.add_job(_startup_snapshot, trigger="date", id="startup_snapshot",
+                      replace_existing=True)
     if not scheduler.running:
         scheduler.start()  # started even if interval=0, so it can be enabled live
     log.info("scheduler.started", interval_minutes=interval)

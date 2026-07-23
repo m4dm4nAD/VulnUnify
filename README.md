@@ -111,6 +111,19 @@ posts one digest covering, per finding at most once each:
 `POST /api/notifications/test` verifies the webhook; `POST /api/notifications/run`
 evaluates the rules immediately instead of waiting for the next sync.
 
+### Posture trends
+
+The Overview page (security roles) charts posture history: open findings and
+KEV/SLA exposure over time come from hourly-throttled snapshots written on each
+scheduler tick and at startup (`posture_snapshots` — history accrues from the
+first snapshot; manual `POST /api/sync` deliberately doesn't snapshot, since new
+findings aren't KEV/risk-scored until intel refresh runs), while new-vs-resolved
+velocity and mean-time-to-remediate are computed retroactively from finding
+timestamps, so they have history immediately. MTTR counts only genuinely
+resolved findings (not false-positive/accepted-risk triage) and measures from
+the latest reopen when a finding came back. `GET /api/posture/trends?days=90`
+serves the series; `POST /api/posture/snapshot` takes one on demand.
+
 ### Trigger a sync
 
 The API requires an authenticated session, so log in once and reuse the cookie:

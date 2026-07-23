@@ -74,6 +74,8 @@ def _upsert_finding(
     if nf.status == FindingStatus.FIXED:
         finding.resolved_at = nf.last_seen or utcnow()
     else:
+        if finding.resolved_at is not None:
+            finding.reopened_at = nf.last_seen or utcnow()
         finding.resolved_at = None
 
     # Triage fields are intentionally left untouched here so local decisions

@@ -23,6 +23,7 @@ from backend.app.api import (
     routes_lifecycle,
     routes_notifications,
     routes_packages,
+    routes_posture,
     routes_settings,
     routes_sync,
     routes_users,
@@ -46,6 +47,8 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         seed_initial_admin(db)
         intel.seed_builtin(db)   # ensure the KEV + EPSS feeds exist
+    # Posture history accrues even with sync off: the startup snapshot runs as a
+    # one-shot background job so its aggregate scans never delay /health.
     start_scheduler()
     try:
         yield
@@ -129,6 +132,7 @@ app.include_router(routes_assets.router, dependencies=_security)
 app.include_router(routes_lifecycle.router, dependencies=_security)
 app.include_router(routes_settings.router, dependencies=_security)
 app.include_router(routes_notifications.router, dependencies=_security)
+app.include_router(routes_posture.router, dependencies=_security)
 # Packages: only /scan is open to all logged-in users (self-service dep check);
 # watchlist import/list/delete enforce require_security per-route.
 app.include_router(routes_packages.router, dependencies=_logged_in)
