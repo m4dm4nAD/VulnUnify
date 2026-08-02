@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.app.api import (
     routes_assets,
+    routes_audit,
     routes_auth,
     routes_connectors,
     routes_containers,
@@ -133,6 +134,7 @@ app.include_router(routes_lifecycle.router, dependencies=_security)
 app.include_router(routes_settings.router, dependencies=_security)
 app.include_router(routes_notifications.router, dependencies=_security)
 app.include_router(routes_posture.router, dependencies=_security)
+app.include_router(routes_audit.router)   # admin-gated by its own router dependency
 # Packages: only /scan is open to all logged-in users (self-service dep check);
 # watchlist import/list/delete enforce require_security per-route.
 app.include_router(routes_packages.router, dependencies=_logged_in)

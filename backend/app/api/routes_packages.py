@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.app.api.deps import require_security, require_user
 from backend.app.api.errors import parse_400
@@ -22,7 +22,7 @@ from backend.app.schemas.package import (
     PackageScanRecordOut,
     WatchedPackageOut,
 )
-from backend.app.services import osv_scan, packages
+from backend.app.services import audit, osv_scan, packages
 from backend.app.services.manifests import parse_manifest
 
 log = structlog.get_logger()
@@ -43,7 +43,8 @@ def scan_packages(body: PackageScanIn, user: User = Depends(require_user)):
     # their results, so log and carry on rather than 500-ing the scan.
     try:
         packages.record_scan(
-            user_id=user.id, filename=body.filename, parsed=parsed, results=results
+            user_id=user.id, username=user.username,
+            filename=body.filename, parsed=parsed, results=results
         )
     except Exception:  # noqa: BLE001 - best-effort audit trail
         log.warning("packages.scan_record_failed", filename=body.filename, exc_info=True)
@@ -65,10 +66,14 @@ def list_scans(
 
 
 @router.post("/import")
-def import_packages(body: PackageImportIn, _: User = Depends(require_security)):
+def import_packages(body: PackageImportIn, request: Request,
+                    actor: User = Depends(require_security)):
     """Parse a manifest/lockfile and add its packages to the watchlist."""
     with parse_400("manifest"):
-        return packages.import_manifest(body.filename, body.content, body.source)
+        result = packages.import_manifest(body.filename, body.content, body.source)
+    audit.record(None, "package.import", f"imported watchlist manifest {body.filename}",
+                 actor=actor, request=request, details={"filename": body.filename})
+    return result
 
 
 @router.get("", response_model=list[WatchedPackageOut])
@@ -86,6 +91,9 @@ def packages_summary(_: User = Depends(require_security)):
 
 
 @router.delete("/{package_id}", status_code=204)
-def delete_watched(package_id: int, _: User = Depends(require_security)):
+def delete_watched(package_id: int, request: Request,
+                   actor: User = Depends(require_security)):
     if not packages.delete_package(package_id):
         raise HTTPException(404, "package not found")
+    audit.record(None, "package.unwatch", f"removed watched package #{package_id}",
+                 actor=actor, request=request, target_type="package", target_id=package_id)

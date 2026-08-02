@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from backend.app.connectors.enums import EffectiveStatus, TriageState
 from backend.app.models.base import utcnow
 from backend.app.models.finding import Finding
-from backend.app.services import app_settings
+from backend.app.services import app_settings, audit
 
 log = structlog.get_logger()
 
@@ -82,17 +82,24 @@ def resolve_missing(db: Session, source: str, seen_fingerprints: set[str]) -> in
     stmt = select(Finding).where(
         Finding.source == source, Finding.resolved_at.is_(None)
     )
-    resolved = 0
+    resolved_ids: list[int] = []
     for finding in db.scalars(stmt):
         if finding.fingerprint in seen_fingerprints:
             continue
         finding.resolved_at = utcnow()
         apply_lifecycle(finding)
-        resolved += 1
+        resolved_ids.append(finding.id)
     db.commit()
-    if resolved:
-        log.info("lifecycle.auto_resolved", source=source, count=resolved)
-    return resolved
+    if resolved_ids:
+        log.info("lifecycle.auto_resolved", source=source, count=len(resolved_ids))
+        # System-attributed: a mass open->resolved transition is forensically
+        # significant and reopen later clears resolved_at, so record it durably.
+        audit.record(None, "finding.auto_resolve",
+                     f"{source}: auto-resolved {len(resolved_ids)} findings no longer reported",
+                     target_type="connector", target_id=source,
+                     details={"source": source, "count": len(resolved_ids),
+                              "finding_ids": resolved_ids[:100]})
+    return len(resolved_ids)
 
 
 def recompute_all(db: Session) -> int:

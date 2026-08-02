@@ -5,14 +5,14 @@ recomputes every finding's risk_score. Security-team only.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import require_security
 from backend.app.db import get_db
 from backend.app.models.user import User
-from backend.app.services import intel
+from backend.app.services import audit, intel
 
 router = APIRouter(prefix="/api/intel", tags=["intel"])
 
@@ -33,10 +33,14 @@ def status(db: Session = Depends(get_db), _: User = Depends(require_security)):
 
 
 @router.post("/refresh")
-def refresh(db: Session = Depends(get_db), _: User = Depends(require_security)):
+def refresh(request: Request, db: Session = Depends(get_db),
+            actor: User = Depends(require_security)):
     """Run every enabled feed over our findings' CVEs and recompute risk scores.
     Blocks briefly on the feed fetch; returns a summary of what was enriched."""
-    return intel.refresh(db)
+    result = intel.refresh(db)
+    audit.record(db, "intel.refresh", "triggered a threat-intel refresh",
+                 actor=actor, request=request, details=result)
+    return result
 
 
 @router.get("/feeds")
@@ -46,26 +50,39 @@ def list_feeds(db: Session = Depends(get_db), _: User = Depends(require_security
 
 
 @router.post("/feeds", status_code=201)
-def add_feed(body: FeedIn, db: Session = Depends(get_db), _: User = Depends(require_security)):
+def add_feed(body: FeedIn, request: Request, db: Session = Depends(get_db),
+             actor: User = Depends(require_security)):
     """Add a custom CVE-list feed (any URL that yields CVE ids)."""
     try:
-        return intel.add_feed(db, name=body.name, url=body.url)
+        feed = intel.add_feed(db, name=body.name, url=body.url)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    audit.record(db, "intel.feed_add", f"added intel feed {body.name}",
+                 actor=actor, request=request, target_type="intel_feed",
+                 target_id=feed.get("id"),
+                 details={"name": body.name, "url": audit.redact_url(body.url)})
+    return feed
 
 
 @router.patch("/feeds/{feed_id}")
-def toggle_feed(feed_id: int, body: FeedToggle, db: Session = Depends(get_db),
-                _: User = Depends(require_security)):
+def toggle_feed(feed_id: int, body: FeedToggle, request: Request,
+                db: Session = Depends(get_db), actor: User = Depends(require_security)):
     """Enable/disable a feed (built-ins included)."""
     feed = intel.set_enabled(db, feed_id, body.enabled)
     if feed is None:
         raise HTTPException(404, "feed not found")
+    audit.record(db, "intel.feed_toggle",
+                 f"{'enabled' if body.enabled else 'disabled'} intel feed #{feed_id}",
+                 actor=actor, request=request, target_type="intel_feed", target_id=feed_id,
+                 details={"enabled": body.enabled})
     return feed
 
 
 @router.delete("/feeds/{feed_id}", status_code=204)
-def delete_feed(feed_id: int, db: Session = Depends(get_db), _: User = Depends(require_security)):
+def delete_feed(feed_id: int, request: Request, db: Session = Depends(get_db),
+                actor: User = Depends(require_security)):
     """Delete a custom feed (built-ins can be disabled but not removed)."""
     if not intel.delete_feed(db, feed_id):
         raise HTTPException(400, "feed not found or is built-in (disable it instead)")
+    audit.record(db, "intel.feed_delete", f"deleted intel feed #{feed_id}",
+                 actor=actor, request=request, target_type="intel_feed", target_id=feed_id)

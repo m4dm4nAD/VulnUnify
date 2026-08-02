@@ -111,6 +111,21 @@ posts one digest covering, per finding at most once each:
 `POST /api/notifications/test` verifies the webhook; `POST /api/notifications/run`
 evaluates the rules immediately instead of waiting for the next sync.
 
+### Audit trail
+
+Security-relevant actions are recorded to `audit_log` and browsable by
+security admins (Audit Log page / `GET /api/audit`): logins (including
+failures, with IP), triage and assignment (with before/after diffs), user and
+settings changes, connector credential changes (which keys were touched —
+never the values), intel feed changes, and manual sync/import triggers.
+`AUDIT_RETENTION_DAYS` prunes old rows on a daily job (0 = keep forever, but
+set a bound on exposed deployments — the login endpoint isn't rate-limited).
+Audit writes are best-effort: a failing write logs an error but never fails the
+audited operation. The recorded source IP comes from the socket peer unless
+`TRUST_PROXY_HEADERS=true` (set only behind a header-overwriting proxy — see
+`.env.example`). Failed logins record the attempted username only when it's a
+real account, so a fumbled password is never persisted.
+
 ### Posture trends
 
 The Overview page (security roles) charts posture history: open findings and

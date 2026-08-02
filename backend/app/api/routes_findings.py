@@ -6,7 +6,7 @@ cannot read or act on a finding outside their queue.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, case, func, select, true
 from sqlalchemy.orm import Session, joinedload
 
@@ -25,7 +25,7 @@ from backend.app.schemas.finding import (
     TriageIn,
 )
 from backend.app.schemas.user import AssignIn
-from backend.app.services import correlation
+from backend.app.services import audit, correlation
 from backend.app.services.lifecycle import apply_lifecycle
 
 router = APIRouter(prefix="/api", tags=["findings"])
@@ -201,11 +201,14 @@ def get_finding(
 def triage_finding(
     finding_id: int,
     body: TriageIn,
+    request: Request,
     db: Session = Depends(get_db),
     actor: User = Depends(require_user),
 ):
     """Apply a triage decision. Devs may triage only their own assigned findings."""
     finding = _load_for_actor(db, finding_id, actor)
+    before = {"state": finding.triage_state, "reason": finding.triage_reason,
+              "effective_status": finding.effective_status}
     finding.triage_state = body.state.value
     finding.triage_reason = body.reason
     finding.triage_until = body.until
@@ -214,6 +217,12 @@ def triage_finding(
     apply_lifecycle(finding)
     db.commit()
     db.refresh(finding)
+    audit.record(db, "finding.triage",
+                 f"triaged '{finding.title[:80]}' to {finding.triage_state}",
+                 actor=actor, request=request, target_type="finding", target_id=finding.id,
+                 details=audit.diff(before, {
+                     "state": finding.triage_state, "reason": finding.triage_reason,
+                     "effective_status": finding.effective_status}))
     return finding
 
 
@@ -221,18 +230,27 @@ def triage_finding(
 def assign_finding(
     finding_id: int,
     body: AssignIn,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_security),
+    actor: User = Depends(require_security),
 ):
     """Assign (or unassign with user_id=null) a finding. Security team only."""
     finding = db.scalar(select(Finding).options(*_LOADS).where(Finding.id == finding_id))
     if finding is None:
         raise HTTPException(404, "finding not found")
-    if body.user_id is not None and db.get(User, body.user_id) is None:
+    assignee = db.get(User, body.user_id) if body.user_id is not None else None
+    if body.user_id is not None and assignee is None:
         raise HTTPException(404, "assignee user not found")
+    before_id = finding.assigned_user_id
     finding.assigned_user_id = body.user_id
     db.commit()
     db.refresh(finding)
+    if before_id != body.user_id:
+        who = assignee.username if assignee else "nobody"
+        audit.record(db, "finding.assign",
+                     f"assigned '{finding.title[:80]}' to {who}",
+                     actor=actor, request=request, target_type="finding", target_id=finding.id,
+                     details={"from_user_id": before_id, "to_user_id": body.user_id})
     return finding
 
 

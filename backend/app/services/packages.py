@@ -88,6 +88,7 @@ def delete_package(package_id: int) -> bool:
 def record_scan(
     *,
     user_id: int | None,
+    username: str | None,
     filename: str,
     parsed: list[ParsedPackage],
     results: list[dict],
@@ -112,6 +113,7 @@ def record_scan(
     with SessionLocal() as db:
         scan = PackageScan(
             user_id=user_id,
+            username=username,
             filename=filename[:512],
             checked=len(parsed),
             vulnerable=len(results),
@@ -132,7 +134,7 @@ def list_scans(limit: int = 50) -> list[dict]:
     with SessionLocal() as db:
         scans = db.scalars(
             select(PackageScan)
-            .options(joinedload(PackageScan.user))  # avoid an N+1 on s.user.username
+            .options(joinedload(PackageScan.user))  # fallback for pre-0018 rows
             .order_by(PackageScan.created_at.desc())
             .limit(limit)
         ).all()
@@ -145,7 +147,7 @@ def list_scans(limit: int = 50) -> list[dict]:
                 "total_vulns": s.total_vulns,
                 "ecosystems": s.ecosystems,
                 "packages": s.packages,
-                "username": s.user.username if s.user else None,
+                "username": s.username or (s.user.username if s.user else None),
                 "created_at": s.created_at,
             }
             for s in scans

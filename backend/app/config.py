@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     sla_medium_days: int = 90
     sla_low_days: int = 180
 
+    # Audit-log retention in days; 0 (default) keeps the trail forever.
+    audit_retention_days: int = 0
+    # Trust X-Forwarded-For for audit IPs. Leave FALSE unless a reverse proxy
+    # that OVERWRITES the header sits in front — otherwise any client can forge
+    # the recorded source IP. When false, the socket peer is recorded.
+    trust_proxy_headers: bool = False
+
     # --- Notifications (Slack-compatible incoming webhook; empty = disabled) ---
     notify_slack_webhook_url: str = ""
     # Open findings at/above this risk score (0..100) trigger a "high risk" alert.

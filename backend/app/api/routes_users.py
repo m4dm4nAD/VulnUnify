@@ -2,7 +2,7 @@
 mutations are security_admin only."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,7 @@ from backend.app.api.deps import require_security, require_security_admin
 from backend.app.db import get_db
 from backend.app.models.user import User, UserRole
 from backend.app.schemas.user import PasswordIn, UserCreate, UserOut, UserUpdate
-from backend.app.services import auth
+from backend.app.services import audit, auth
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -32,7 +32,10 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(require_security
 
 @router.post("", response_model=UserOut, status_code=201)
 def create_user(
-    body: UserCreate, db: Session = Depends(get_db), _: User = Depends(require_security_admin)
+    body: UserCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_security_admin),
 ):
     if db.scalar(select(User).where(User.username == body.username)):
         raise HTTPException(409, "username already exists")
@@ -46,6 +49,9 @@ def create_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+    audit.record(db, "user.create", f"created user {user.username} ({user.role})",
+                 actor=actor, request=request, target_type="user", target_id=user.id,
+                 details={"username": user.username, "role": user.role, "email": user.email})
     return user
 
 
@@ -53,8 +59,9 @@ def create_user(
 def update_user(
     user_id: int,
     body: UserUpdate,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_security_admin),
+    actor: User = Depends(require_security_admin),
 ):
     user = db.get(User, user_id)
     if user is None:
@@ -66,14 +73,21 @@ def update_user(
     if user.role == _ADMIN and demoting and _active_admins(db) <= 1:
         raise HTTPException(400, "cannot remove the last active security_admin")
 
+    before = {"email": user.email, "role": user.role, "is_active": user.is_active}
     if body.email is not None:
         user.email = body.email
     if body.role is not None:
         user.role = body.role.value
     if body.is_active is not None:
         user.is_active = body.is_active
+    changed = audit.diff(before, {"email": user.email, "role": user.role,
+                                  "is_active": user.is_active})
     db.commit()
     db.refresh(user)
+    if changed:
+        audit.record(db, "user.update", f"updated user {user.username}",
+                     actor=actor, request=request, target_type="user", target_id=user.id,
+                     details=changed)
     return user
 
 
@@ -81,19 +95,23 @@ def update_user(
 def set_password(
     user_id: int,
     body: PasswordIn,
+    request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_security_admin),
+    actor: User = Depends(require_security_admin),
 ):
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(404, "user not found")
     user.password_hash = auth.hash_password(body.password)
     db.commit()
+    audit.record(db, "user.password_reset", f"reset password for {user.username}",
+                 actor=actor, request=request, target_type="user", target_id=user.id)
 
 
 @router.delete("/{user_id}", status_code=204)
 def delete_user(
     user_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     actor: User = Depends(require_security_admin),
 ):
@@ -104,5 +122,9 @@ def delete_user(
         raise HTTPException(400, "cannot delete yourself")
     if user.role == _ADMIN and _active_admins(db) <= 1:
         raise HTTPException(400, "cannot delete the last active security_admin")
+    deleted = {"username": user.username, "role": user.role}
     db.delete(user)  # findings.assigned_user_id is set null via FK
     db.commit()
+    audit.record(db, "user.delete", f"deleted user {deleted['username']}",
+                 actor=actor, request=request, target_type="user", target_id=user_id,
+                 details=deleted)

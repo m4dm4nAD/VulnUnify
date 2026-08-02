@@ -112,3 +112,12 @@ def seed_initial_admin(db: DbSession) -> None:
         password=password if generated else "<from INITIAL_ADMIN_PASSWORD>",
         note="change this password" if generated else "",
     )
+    # System-attributed so every admin bootstrap is pinned in the trail (the one
+    # account creation POST /api/users would otherwise never record).
+    from backend.app.services import audit  # local import: avoid an import cycle
+    audit.record(db, "user.create",
+                 f"seeded bootstrap admin {settings.initial_admin_username}",
+                 target_type="user",
+                 details={"username": settings.initial_admin_username,
+                          "role": "security_admin", "seeded": True,
+                          "password_source": "generated" if generated else "env"})

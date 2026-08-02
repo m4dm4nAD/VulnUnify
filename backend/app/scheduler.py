@@ -11,7 +11,7 @@ import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from backend.app.db import SessionLocal
-from backend.app.services import app_settings, intel, notifications, posture
+from backend.app.services import app_settings, audit, intel, notifications, posture
 from backend.app.services.ingest import sync_all
 from backend.app.services.lifecycle import recompute_all
 
@@ -80,11 +80,23 @@ def _startup_snapshot() -> None:
         db.close()
 
 
+def _prune_audit() -> None:
+    """Daily audit-retention enforcement. Independent of the sync job so it runs
+    even when periodic sync is disabled; audit.prune manages its own session."""
+    try:
+        audit.prune()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("scheduler.audit_prune_failed", error=str(exc))
+
+
 def start_scheduler() -> None:
     interval = app_settings.get("sync_interval_minutes")
     _set_job(interval)
     scheduler.add_job(_startup_snapshot, trigger="date", id="startup_snapshot",
                       replace_existing=True)
+    # Retention runs on its own daily cadence regardless of the sync interval.
+    scheduler.add_job(_prune_audit, trigger="interval", hours=24, id="audit_prune",
+                      max_instances=1, coalesce=True, replace_existing=True)
     if not scheduler.running:
         scheduler.start()  # started even if interval=0, so it can be enabled live
     log.info("scheduler.started", interval_minutes=interval)

@@ -1,7 +1,7 @@
 """Connector inventory + status."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,7 @@ from backend.app.schemas.finding import (
     ConnectorRunOut,
     ConnectorStatus,
 )
-from backend.app.services import credentials
+from backend.app.services import audit, credentials
 
 router = APIRouter(prefix="/api/connectors", tags=["connectors"])
 
@@ -101,7 +101,8 @@ def get_config(name: str, _: User = Depends(require_security_admin)):
 
 
 @router.put("/{name}/config", response_model=ConnectorConfigOut)
-def update_config(name: str, body: ConfigUpdateIn, _: User = Depends(require_security_admin)):
+def update_config(name: str, body: ConfigUpdateIn, request: Request,
+                  actor: User = Depends(require_security_admin)):
     """Store credential/config overrides (encrypted). Empty value clears a key."""
     connector = _require(name)
     allowed = {f.key for f in connector.config_fields}
@@ -109,12 +110,20 @@ def update_config(name: str, body: ConfigUpdateIn, _: User = Depends(require_sec
     if unknown:
         raise HTTPException(400, f"unknown config keys: {sorted(unknown)}")
     credentials.set_values(name, body.values)
+    # Audit the KEYS touched, never the values (they're credentials).
+    audit.record(None, "connector.configure", f"configured connector {name}",
+                 actor=actor, request=request, target_type="connector", target_id=name,
+                 details={"set": sorted(k for k, v in body.values.items() if v != ""),
+                          "cleared": sorted(k for k, v in body.values.items() if v == "")})
     return _config_payload(_require(name))   # fresh instance reloads overrides
 
 
 @router.delete("/{name}/config", response_model=ConnectorConfigOut)
-def reset_config(name: str, _: User = Depends(require_security_admin)):
+def reset_config(name: str, request: Request, actor: User = Depends(require_security_admin)):
     """Clear all stored overrides for a connector (revert to env/.env)."""
     _require(name)
-    credentials.clear(name)
+    cleared = credentials.clear(name)
+    audit.record(None, "connector.reset", f"reset connector {name} to .env config",
+                 actor=actor, request=request, target_type="connector", target_id=name,
+                 details={"cleared_rows": cleared})
     return _config_payload(_require(name))

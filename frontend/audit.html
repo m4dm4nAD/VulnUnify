@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Audit Log</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
+</head>
+<body>
+  <div id="view" data-page="audit" data-title="Audit Log" data-subtitle="Who did what, when — auth, triage, and configuration changes">
+    <section>
+      <h2>Audit trail <span id="auCount" class="muted" style="text-transform:none"></span></h2>
+      <div class="filters">
+        <select id="auAction"><option value="">All actions</option></select>
+        <input id="auActor" placeholder="actor…" style="width:140px" autocomplete="off" />
+        <input id="auQ" placeholder="search summary…" />
+        <button class="mini" onclick="resetFilters()">Reset</button>
+      </div>
+      <div class="table-card">
+        <div class="tscroll">
+          <table><thead><tr>
+            <th>Time</th><th>Actor</th><th>IP</th><th>Action</th><th>Target</th><th>Summary</th>
+          </tr></thead>
+          <tbody id="audit"></tbody></table>
+        </div>
+      </div>
+      <div class="pager">
+        <span class="spacer"></span>
+        <button id="prevPage" class="mini">‹ Prev</button>
+        <span id="pageInfo" class="muted"></span>
+        <button id="nextPage" class="mini">Next ›</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // api(), esc(), fmtDate(), renderRows(), toast() come from /app.js
+    let page = 0;
+    const LIMIT = 50;
+
+    function params() {
+      const p = new URLSearchParams();
+      if (auAction.value) p.set("action", auAction.value);
+      if (auActor.value.trim()) p.set("actor", auActor.value.trim());
+      if (auQ.value.trim()) p.set("q", auQ.value.trim());
+      p.set("limit", LIMIT);
+      p.set("offset", page * LIMIT);
+      return p;
+    }
+
+    async function loadAudit() {
+      const data = await api("/api/audit?" + params().toString());
+      document.getElementById("auCount").textContent = `— ${data.total} entries`;
+      const from = data.total === 0 ? 0 : data.offset + 1;
+      const to = Math.min(data.offset + data.limit, data.total);
+      pageInfo.textContent = `${from}–${to} of ${data.total}`;
+      prevPage.disabled = data.offset <= 0;
+      nextPage.disabled = data.offset + data.limit >= data.total;
+
+      renderRows("audit", data.items, r => {
+        const target = r.target_type ? `${esc(r.target_type)} #${esc(r.target_id ?? "")}` : "—";
+        const hasDetails = r.details && Object.keys(r.details).length > 0;
+        const caret = hasDetails
+          ? `<button class="caret" data-act="toggle" data-id="${r.id}" title="show details">▸</button> ` : "";
+        const main = `<tr>
+          <td class="muted" style="white-space:nowrap">${esc(fmtDate(r.at))}</td>
+          <td>${r.actor ? esc(r.actor) : '<span class="muted">system</span>'}</td>
+          <td class="muted mono-cell">${esc(r.ip || "—")}</td>
+          <td><span class="pill">${esc(r.action)}</span></td>
+          <td class="muted">${target}</td>
+          <td>${caret}${esc(r.summary)}</td></tr>`;
+        const detail = hasDetails
+          ? `<tr class="grp-member" data-detail="${r.id}" hidden><td colspan="6">
+               <pre class="raw" style="margin:6px 0">${esc(JSON.stringify(r.details, null, 2))}</pre>
+             </td></tr>` : "";
+        return main + detail;
+      }, { colspan: 6, empty: "No audit entries match." });
+    }
+
+    document.getElementById("audit").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-act='toggle']");
+      if (!btn) return;
+      const row = document.querySelector(`tr[data-detail="${btn.dataset.id}"]`);
+      const open = btn.textContent === "▸";
+      if (row) row.hidden = !open;
+      btn.textContent = open ? "▾" : "▸";
+    });
+
+    async function loadActions() {
+      const acts = await api("/api/audit/actions");
+      // offer the prefix groups too (finding, connector, ...) above exact actions
+      const groups = [...new Set(acts.map(a => a.split(".")[0]))];
+      auAction.innerHTML = `<option value="">All actions</option>`
+        + groups.map(g => `<option value="${esc(g)}">${esc(g)}.*</option>`).join("")
+        + `<option disabled>──</option>`
+        + acts.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join("");
+    }
+
+    function resetFilters() {
+      auAction.value = ""; auActor.value = ""; auQ.value = "";
+      page = 0; loadAudit();
+    }
+
+    const reload = () => { page = 0; loadAudit(); };
+    auAction.onchange = reload;
+    auActor.oninput = () => { clearTimeout(window._t); window._t = setTimeout(reload, 300); };
+    auQ.oninput = () => { clearTimeout(window._t2); window._t2 = setTimeout(reload, 300); };
+    prevPage.onclick = () => { if (page > 0) { page--; loadAudit(); } };
+    nextPage.onclick = () => { page++; loadAudit(); };
+
+    requireRole("admin").then(() => { loadActions(); loadAudit(); });
+  </script>
+</body>
+</html>

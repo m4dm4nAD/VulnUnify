@@ -27,6 +27,9 @@ class PackageScan(Base):
         ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
     user: Mapped["User | None"] = relationship("User")  # noqa: F821
+    # Denormalized at write time so attribution survives user deletion (the FK
+    # above goes NULL), mirroring audit_log.actor_username.
+    username: Mapped[str | None] = mapped_column(String(128))
 
     filename: Mapped[str] = mapped_column(String(512))
 
