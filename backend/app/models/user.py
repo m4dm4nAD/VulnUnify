@@ -28,6 +28,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     email: Mapped[str | None] = mapped_column(String(255))
     password_hash: Mapped[str | None] = mapped_column(String(255))  # null for SSO users
+    # Stable OIDC subject ("sub" claim), stamped on first SSO login. Unique so an
+    # IdP identity maps to exactly one local account; null for local-only users.
+    oidc_subject: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     role: Mapped[str] = mapped_column(
         String(16), default=UserRole.DEV.value, server_default=UserRole.DEV.value
     )

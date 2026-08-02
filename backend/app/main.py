@@ -25,6 +25,7 @@ from backend.app.api import (
     routes_notifications,
     routes_packages,
     routes_posture,
+    routes_radar,
     routes_settings,
     routes_sync,
     routes_users,
@@ -33,7 +34,7 @@ from backend.app.api.deps import require_security, require_user
 from backend.app.config import settings
 from backend.app.db import SessionLocal
 from backend.app.scheduler import shutdown_scheduler, start_scheduler
-from backend.app.services import errorlog, intel
+from backend.app.services import errorlog, intel, radar
 from backend.app.services.auth import seed_initial_admin
 
 # One level drives both stdlib logging and structlog, so LOG_LEVEL actually
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         seed_initial_admin(db)
         intel.seed_builtin(db)   # ensure the KEV + EPSS feeds exist
+        radar.seed_sources(db)   # starter allowlist of researcher accounts
     # Posture history accrues even with sync off: the startup snapshot runs as a
     # one-shot background job so its aggregate scans never delay /health.
     start_scheduler()
@@ -134,6 +136,7 @@ app.include_router(routes_lifecycle.router, dependencies=_security)
 app.include_router(routes_settings.router, dependencies=_security)
 app.include_router(routes_notifications.router, dependencies=_security)
 app.include_router(routes_posture.router, dependencies=_security)
+app.include_router(routes_radar.router, dependencies=_security)
 app.include_router(routes_audit.router)   # admin-gated by its own router dependency
 # Packages: only /scan is open to all logged-in users (self-service dep check);
 # watchlist import/list/delete enforce require_security per-route.

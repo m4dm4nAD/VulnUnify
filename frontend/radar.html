@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VulnUnify — Vuln Radar</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/app.js"></script>
+</head>
+<body>
+  <div id="view" data-page="radar" data-title="Vuln Radar"
+       data-subtitle="Recent vulnerability chatter from curated researcher accounts — treat as unconfirmed leads">
+    <div data-actions>
+      <button id="pollBtn" class="btn ghost" data-gate="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg>Poll now</button>
+    </div>
+
+    <section id="offMsg" hidden>
+      <div class="table-card" style="padding:16px">
+        <p class="muted" style="margin:0">The radar is off. Set <code>RADAR_ENABLED=true</code> (and optionally an
+        Anthropic key for the LLM classifier) to start polling the curated accounts. Sources seeded:
+        <span id="srcCount">…</span>.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Radar <span id="rdCount" class="muted" style="text-transform:none"></span></h2>
+      <div class="filters">
+        <select id="fStatus"><option value="new">New</option>
+          <option value="">All</option><option value="confirmed">Confirmed</option>
+          <option value="dismissed">Dismissed</option></select>
+        <label><input type="checkbox" id="fMatched" /> Matches an open finding</label>
+        <label class="muted" style="font-size:13px">Min confidence
+          <input id="fConf" type="number" min="0" max="1" step="0.05" value="0.35" style="width:70px"></label>
+        <input id="fQ" placeholder="search text…" />
+      </div>
+      <div id="radar" class="feed"></div>
+    </section>
+  </div>
+
+  <script>
+    const isAdmin = () => window.ME?.role === "security_admin";
+    const SEV_CLASS = { critical: "sev-critical", high: "sev-high", medium: "sev-medium", low: "sev-low" };
+
+    function params() {
+      const p = new URLSearchParams();
+      if (fStatus.value) p.set("status", fStatus.value);
+      if (fMatched.checked) p.set("matched", "true");
+      const c = parseFloat(fConf.value); if (!isNaN(c)) p.set("min_confidence", c);
+      if (fQ.value.trim()) p.set("q", fQ.value.trim());
+      p.set("limit", 100);
+      return p;
+    }
+
+    function card(it) {
+      const conf = Math.round((it.confidence || 0) * 100);
+      const band = conf >= 70 ? "risk-crit" : conf >= 45 ? "risk-high" : conf >= 25 ? "risk-med" : "risk-low";
+      const cves = (it.cve_ids || []).map(c => `<span class="pill">${esc(c)}</span>`).join(" ");
+      const matched = (it.matched_finding_ids || []).length;
+      const badges = [
+        it.poc_mentioned ? `<span class="pill kev">PoC</span>` : "",
+        it.classified_by === "llm" ? `<span class="pill" title="classified by the LLM layer">AI</span>` : "",
+        matched ? `<span class="pill sla" title="matches ${matched} open finding(s)">MATCH ×${matched}</span>` : "",
+      ].join(" ");
+      const sev = it.severity_hint ? `<span class="pill ${SEV_CLASS[it.severity_hint] || ''}">${esc(it.severity_hint)}</span>` : "";
+      const actions = it.status === "new"
+        ? `<button class="mini" data-act="confirmed" data-id="${it.id}">Confirm</button>
+           <button class="mini" data-act="dismissed" data-id="${it.id}">Dismiss</button>`
+        : `<span class="muted">${esc(it.status)}</span>
+           <button class="mini" data-act="new" data-id="${it.id}">Reset</button>`;
+      // only render http(s) links — never a javascript:/data: scheme from a post
+      const safeUrl = /^https?:\/\//i.test(it.url || "") ? it.url : null;
+      const link = safeUrl ? `<a class="link" href="${esc(safeUrl)}" target="_blank" rel="noopener">source ↗</a>` : "";
+      return `<div class="table-card radar-item" style="padding:14px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline">
+          <div><b>${esc(it.author_display || it.author_handle)}</b>
+            <span class="muted mono-cell" style="font-size:12px">${esc(it.author_handle)}</span></div>
+          <div><span class="pill risk ${band}" title="confidence">${conf}%</span></div>
+        </div>
+        <div style="margin:8px 0">${esc(it.summary || it.text)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${sev}${cves}${badges}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+          <span class="muted" style="font-size:12px">${it.posted_at ? fmtDate(it.posted_at) : ""} ${link}</span>
+          <span class="row-actions">${actions}</span>
+        </div></div>`;
+    }
+
+    async function load() {
+      const data = await api("/api/radar?" + params().toString());
+      document.getElementById("rdCount").textContent = `— ${data.total} items`;
+      const el = document.getElementById("radar");
+      el.innerHTML = (data.items || []).map(card).join("")
+        || `<div class="table-card" style="padding:16px"><span class="muted">No items match — as syncs run, curated accounts' vuln posts show up here.</span></div>`;
+    }
+
+    document.getElementById("radar").addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      btn.disabled = true;
+      try {
+        await api(`/api/radar/${btn.dataset.id}/status`, { method: "POST", json: { status: btn.dataset.act } });
+        load();
+      } finally { btn.disabled = false; }
+    });
+
+    async function checkEnabled() {
+      const sources = await api("/api/radar/sources");
+      const anyPolled = sources.some(s => s.last_polled_at);
+      if (!anyPolled) {
+        document.getElementById("offMsg").hidden = false;
+        document.getElementById("srcCount").textContent = sources.length;
+      }
+    }
+
+    pollBtn.onclick = async () => {
+      pollBtn.disabled = true; const label = pollBtn.textContent; pollBtn.textContent = "Polling…";
+      try {
+        const r = await api("/api/radar/poll", { method: "POST" });
+        toast(r.enabled ? `Polled ${r.sources} sources — ${r.new_items} new` : "Radar is disabled (RADAR_ENABLED)", r.enabled ? "success" : "info");
+        load();
+      } finally { pollBtn.disabled = false; pollBtn.textContent = label; }
+    };
+    [fStatus, fMatched, fConf].forEach(el => el.onchange = load);
+    fQ.oninput = () => { clearTimeout(window._t); window._t = setTimeout(load, 300); };
+
+    requireRole("security").then(() => { load(); checkEnabled(); });
+  </script>
+</body>
+</html>

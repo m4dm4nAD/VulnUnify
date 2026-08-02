@@ -18,6 +18,8 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "cryptography>=42.0",
     "bcrypt>=4.1",
+    "pyjwt[crypto]>=2.8",   # OIDC ID-token (JWT/JWKS) validation
+    "anthropic>=0.40",      # optional LLM classifier for the vuln radar
 ]
 
 [project.optional-dependencies]

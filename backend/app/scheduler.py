@@ -10,8 +10,9 @@ from __future__ import annotations
 import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from backend.app.config import settings
 from backend.app.db import SessionLocal
-from backend.app.services import app_settings, audit, intel, notifications, posture
+from backend.app.services import app_settings, audit, intel, notifications, posture, radar
 from backend.app.services.ingest import sync_all
 from backend.app.services.lifecycle import recompute_all
 
@@ -89,6 +90,19 @@ def _prune_audit() -> None:
         log.warning("scheduler.audit_prune_failed", error=str(exc))
 
 
+def _poll_radar() -> None:
+    """Poll the vuln radar (no-op unless RADAR_ENABLED). Own session; makes
+    outbound calls to social APIs, so it's isolated from the sync job."""
+    db = SessionLocal()
+    try:
+        radar.poll(db)
+        radar.prune(db)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("scheduler.radar_failed", error=str(exc))
+    finally:
+        db.close()
+
+
 def start_scheduler() -> None:
     interval = app_settings.get("sync_interval_minutes")
     _set_job(interval)
@@ -96,6 +110,10 @@ def start_scheduler() -> None:
                       replace_existing=True)
     # Retention runs on its own daily cadence regardless of the sync interval.
     scheduler.add_job(_prune_audit, trigger="interval", hours=24, id="audit_prune",
+                      max_instances=1, coalesce=True, replace_existing=True)
+    # Vuln radar polls on its own cadence (no-op unless RADAR_ENABLED).
+    scheduler.add_job(_poll_radar, trigger="interval",
+                      minutes=max(5, int(settings.radar_poll_minutes)), id="radar_poll",
                       max_instances=1, coalesce=True, replace_existing=True)
     if not scheduler.running:
         scheduler.start()  # started even if interval=0, so it can be enabled live

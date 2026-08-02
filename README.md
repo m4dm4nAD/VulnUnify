@@ -111,6 +111,39 @@ posts one digest covering, per finding at most once each:
 `POST /api/notifications/test` verifies the webhook; `POST /api/notifications/run`
 evaluates the rules immediately instead of waiting for the next sync.
 
+### Vuln radar
+
+An early-warning ticker of vulnerability chatter from a **curated allowlist** of
+security researchers on free, keyless public APIs (Mastodon, Bluesky) — the
+Vuln Radar page (security team). This is ambient threat-intel, *not* findings:
+each item is an unconfirmed lead a human confirms or dismisses.
+
+Signal/noise is filtered in layers, cheapest first: the source allowlist, then a
+free structural funnel (CVE ids, vuln keywords, advisory-domain links → a
+confidence score), then an **optional** LLM classifier (`RADAR_LLM_ENABLED` + an
+Anthropic key) that rejects jokes/old-references/noise and extracts structured
+fields. Items are correlated to your open findings by CVE — a match bumps the
+item and (if a notification webhook is set) fires a one-off alert.
+
+Off by default (`RADAR_ENABLED=false` — no outbound polling until enabled); a
+starter set of well-known accounts is seeded on first boot, curate/expand via
+the `radar_sources` table. `POST /api/radar/poll` polls on demand.
+
+### Single sign-on (OIDC)
+
+Local username/password is the default and always available. To also offer SSO,
+set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` (any OIDC provider —
+Google, Okta, Entra, Keycloak…) and register `<base-url>/api/auth/oidc/callback`
+as the redirect URL. The login page then shows an SSO button. The flow is
+Authorization Code + PKCE with full ID-token validation (JWKS signature, issuer,
+audience, expiry, nonce).
+
+By default only accounts an admin already created can sign in via SSO, linked on
+first login by a stable subject or **verified** email. Set
+`OIDC_AUTO_PROVISION=true` (optionally with `OIDC_ALLOWED_DOMAINS` and
+`OIDC_DEFAULT_ROLE`, default `dev`) to create accounts just-in-time. Inactive
+users are always refused. SSO logins are audited with `method=oidc`.
+
 ### Audit trail
 
 Security-relevant actions are recorded to `audit_log` and browsable by

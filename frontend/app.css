@@ -320,6 +320,11 @@ body.login { display: flex; align-items: center; justify-content: center; min-he
 .login-card input { padding: 11px; }
 .login-card button { padding: 11px; }
 .err-msg { color: var(--crit); font-size: 13px; min-height: 16px; text-align: center; }
+.sso-divider { display: flex; align-items: center; gap: 10px; margin: 16px 0 12px; color: var(--text-faint); font-size: 12px; }
+.sso-divider::before, .sso-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.sso-btn { display: block; text-align: center; padding: 11px; border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); text-decoration: none; font-weight: 600; font-size: 14px; }
+.sso-btn:hover { background: var(--surface-2); border-color: var(--accent); }
 
 /* ---------------- Responsive ---------------- */
 @media (max-width: 900px) {

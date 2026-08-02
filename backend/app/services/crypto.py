@@ -69,5 +69,12 @@ def decrypt(token: str) -> str:
     return _cipher().decrypt(token.encode()).decode()
 
 
+def decrypt_with_ttl(token: str, ttl: int) -> str:
+    """Decrypt, rejecting tokens older than `ttl` seconds (Fernet embeds the
+    creation time). Used for short-lived transaction cookies. Raises InvalidToken
+    on a bad key, tampering, or expiry."""
+    return _cipher().decrypt(token.encode(), ttl=ttl).decode()
+
+
 # Re-export so callers can catch a bad-key/corrupt-value case.
-__all__ = ["encrypt", "decrypt", "InvalidToken"]
+__all__ = ["encrypt", "decrypt", "decrypt_with_ttl", "InvalidToken"]

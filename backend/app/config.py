@@ -46,6 +46,43 @@ class Settings(BaseSettings):
 
     # Audit-log retention in days; 0 (default) keeps the trail forever.
     audit_retention_days: int = 0
+
+    # --- Vuln radar (ambient threat-intel from curated social accounts) ---
+    # Off by default: no outbound social-API polling until enabled. Sources are
+    # free/keyless (Mastodon, Bluesky).
+    radar_enabled: bool = False
+    radar_poll_minutes: int = 30
+    radar_max_age_days: int = 7      # ignore posts older than this when polling
+    radar_retention_days: int = 30   # prune radar items older than this (0 = keep)
+    # Only surface items scoring at/above this after the funnel (0..1).
+    radar_min_confidence: float = 0.35
+    # Optional LLM classification layer (precision upgrade; costs per item).
+    # Off by default; needs an Anthropic API key. When off, structural signals
+    # alone score items.
+    radar_llm_enabled: bool = False
+    anthropic_api_key: str = ""
+    # claude-opus-4-8 is the most capable default; claude-haiku-4-5 is far cheaper
+    # per item and well-suited to this classify/extract task — operator's choice.
+    radar_llm_model: str = "claude-opus-4-8"
+
+    # --- OIDC / SSO (optional; local accounts remain the default login) ---
+    # SSO is enabled only when issuer + client id + secret are all set.
+    oidc_issuer: str = ""            # base URL, e.g. https://accounts.google.com
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    # Where the IdP redirects back. Blank = derive from the request's base URL
+    # + /api/auth/oidc/callback (register that exact URL with the IdP).
+    oidc_redirect_url: str = ""
+    oidc_scopes: str = "openid email profile"
+    oidc_button_label: str = "Single sign-on"
+    # Which ID-token claim becomes the local username (falls back to sub).
+    oidc_username_claim: str = "email"
+    # Just-in-time provisioning: create a local account on first SSO login for an
+    # identity that has none. OFF by default — only pre-created accounts sign in.
+    oidc_auto_provision: bool = False
+    oidc_default_role: str = "dev"   # role for auto-provisioned users
+    # Comma-separated email domains allowed to sign in via SSO (empty = any).
+    oidc_allowed_domains: str = ""
     # Trust X-Forwarded-For for audit IPs. Leave FALSE unless a reverse proxy
     # that OVERWRITES the header sits in front — otherwise any client can forge
     # the recorded source IP. When false, the socket peer is recorded.
@@ -124,6 +161,18 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
+    @property
+    def oidc_configured(self) -> bool:
+        return bool(self.oidc_issuer and self.oidc_client_id and self.oidc_client_secret)
+
+    @property
+    def oidc_allowed_domain_list(self) -> list[str]:
+        return [d.strip().lower() for d in self.oidc_allowed_domains.split(",") if d.strip()]
+
+    @property
+    def oidc_scope_list(self) -> list[str]:
+        return [s for s in self.oidc_scopes.split() if s]
 
 
 settings = Settings()
