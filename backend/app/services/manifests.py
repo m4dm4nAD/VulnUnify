@@ -1,9 +1,12 @@
 """Parse dependency manifests/lockfiles/SBOMs into (ecosystem, name, version) triples.
 
 Ecosystem names match OSV's vocabulary ("npm", "PyPI", "Go") so parsed packages
-can be queried directly. Only entries with *exact* versions are useful for
-supply-chain matching, so unpinned ranges (e.g. package.json "^1.2.3" is fine,
-but ">=1 <2", "*", "latest", or a git URL) are skipped.
+can be queried directly. OSV needs *exact* versions, so most parsers only keep
+pinned entries (e.g. package.json "^1.2.3" is fine, but ">=1 <2", "*",
+"latest", or a git URL is skipped). requirements.txt is the exception: an
+unpinned name is returned with version LATEST and a range specifier (">=2,<3")
+is returned verbatim — services.pypi resolves both to the concrete version pip
+would install before any OSV query.
 """
 from __future__ import annotations
 
@@ -25,14 +28,25 @@ _PURL_ECO = {
 }
 
 
+# Sentinel version for an unpinned requirement ("check whatever is newest").
+LATEST = "latest"
+
+
 @dataclass(frozen=True)
 class ParsedPackage:
     ecosystem: str
     name: str
-    version: str
+    version: str                    # exact version, LATEST, or a PEP 440 specifier set
+    requested: str | None = None    # original spec when `version` was resolved from one
+
+
+def is_version_spec(version: str) -> bool:
+    """True if `version` is LATEST or a range specifier rather than an exact version."""
+    return version == LATEST or bool(re.match(r"[<>!~=]", version))
 
 
 def parse_manifest(filename: str, content: str) -> list[ParsedPackage]:
+    content = content.lstrip("﻿")  # BOM from Windows-saved files breaks every parser
     base = filename.replace("\\", "/").split("/")[-1].lower()
     if base == "package-lock.json":
         return _parse_package_lock(content)
@@ -77,19 +91,40 @@ def _parse_package_lock(content: str) -> list[ParsedPackage]:
     return _dedup(out)
 
 
-_REQ_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*==\s*([^\s;#]+)")
+# name + optional [extras]; the rest of the line is the version specifier (if any).
+_REQ_NAME_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*")
+# One PEP 440 clause, e.g. ">=1.0", "==1.2.*", "==1!2.0" (whitespace already stripped;
+# "!" is allowed in the version part for epochs — "!=" is consumed as the operator first).
+_REQ_CLAUSE_RE = re.compile(r"^(===|==|!=|<=|>=|~=|<|>)[^,<>~=\s]+$")
 
 
 def _parse_requirements(content: str) -> list[ParsedPackage]:
     out: list[ParsedPackage] = []
+    content = re.sub(r"\\\r?\n", " ", content)  # join continuation lines, like pip does
     for raw in content.splitlines():
-        line = raw.split("#", 1)[0].strip()
+        line = raw.split("#", 1)[0].split(";", 1)[0].strip()  # drop comment + env marker
+        line = re.split(r"\s--", line)[0].strip()  # drop inline options (--hash=…)
+        line = line.rstrip("\\").strip()  # stray trailing backslash (continuation at EOF)
         if not line or line.startswith("-"):  # skip -r/-e/options and blanks
             continue
-        m = _REQ_RE.match(line)
-        if m:
-            name = re.sub(r"[-_.]+", "-", m.group(1)).lower()  # PEP 503 normalize
-            out.append(ParsedPackage("PyPI", name, m.group(2)))
+        m = _REQ_NAME_RE.match(line)
+        if not m:
+            continue
+        name = re.sub(r"[-_.]+", "-", m.group(1)).lower()  # PEP 503 normalize
+        spec = re.sub(r"\s+", "", line[m.end():])
+        if spec.startswith("(") and spec.endswith(")"):  # legacy "name (>=1.0)" form
+            spec = spec[1:-1]
+        if not spec:  # bare name — no pin at all
+            out.append(ParsedPackage("PyPI", name, LATEST))
+            continue
+        clauses = spec.split(",")
+        if not all(_REQ_CLAUSE_RE.match(c) for c in clauses):
+            continue  # URL requirement ("name @ https://…") or malformed — skip
+        pin = clauses[0] if len(clauses) == 1 else None
+        if pin and pin.startswith(("==", "===")) and "*" not in pin:
+            out.append(ParsedPackage("PyPI", name, pin.lstrip("=")))  # exact pin
+        else:
+            out.append(ParsedPackage("PyPI", name, spec))  # range (>=, <=, ~=, !=, ==1.*)
     return _dedup(out)
 
 

@@ -20,12 +20,15 @@ _BATCH_SIZE = 500
 def scan(packages: list[ParsedPackage]) -> list[dict]:
     """Query OSV for each package; return one entry per vulnerable package.
 
-    Result item: {ecosystem, name, version, vulns: [{id, summary, severity,
-    malicious, cves, references}]}. Packages with no known vulns are omitted.
+    Result item: {ecosystem, name, version, requested, vulns: [{id, summary,
+    severity, malicious, cves, references}]}. Packages with no known vulns are
+    omitted. `requested` is the original spec when the version was resolved
+    from one (e.g. ">=2", "latest"), else None.
     """
     uniq = {
         (p.ecosystem, p.name, p.version): {
-            "ecosystem": p.ecosystem, "name": p.name, "version": p.version
+            "ecosystem": p.ecosystem, "name": p.name, "version": p.version,
+            "requested": p.requested,
         }
         for p in packages
     }

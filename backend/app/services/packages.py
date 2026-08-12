@@ -11,13 +11,18 @@ from backend.app.models.base import utcnow
 from backend.app.models.package_scan import PackageScan
 from backend.app.models.watched_package import WatchedPackage
 from backend.app.services.manifests import ParsedPackage, parse_manifest
+from backend.app.services.pypi import resolve_specs
 
 log = structlog.get_logger()
 
 
 def import_manifest(filename: str, content: str, source: str | None = None) -> dict:
-    """Parse a manifest and upsert its packages under a source label."""
-    parsed = parse_manifest(filename, content)
+    """Parse a manifest and upsert its packages under a source label.
+
+    Unpinned/range requirements are resolved to the version pip would install
+    today, so the watchlist only ever holds concrete versions.
+    """
+    parsed, unresolved = resolve_specs(parse_manifest(filename, content))
     src = (source or filename).strip()[:256]
     now = utcnow()
     added = 0
@@ -48,6 +53,7 @@ def import_manifest(filename: str, content: str, source: str | None = None) -> d
         "parsed": len(parsed),
         "added": added,
         "ecosystems": sorted({p.ecosystem for p in parsed}),
+        "unresolved": unresolved,
     }
 
 
@@ -106,6 +112,7 @@ def record_scan(
             "ecosystem": p.ecosystem,
             "name": p.name,
             "version": p.version,
+            "requested": p.requested,
             "vuln_count": vuln_counts.get((p.ecosystem, p.name, p.version), 0),
         }
         for p in parsed

@@ -22,7 +22,7 @@ from backend.app.schemas.package import (
     PackageScanRecordOut,
     WatchedPackageOut,
 )
-from backend.app.services import audit, osv_scan, packages
+from backend.app.services import audit, osv_scan, packages, pypi
 from backend.app.services.manifests import parse_manifest
 
 log = structlog.get_logger()
@@ -32,13 +32,19 @@ router = APIRouter(prefix="/api/packages", tags=["packages"])
 
 @router.post("/scan", response_model=PackageScanOut)
 def scan_packages(body: PackageScanIn, user: User = Depends(require_user)):
-    """Parse an uploaded file, check its packages against OSV, and record the search."""
+    """Parse an uploaded file, check its packages against OSV, and record the search.
+
+    Unpinned/range requirements are first resolved to the version pip would
+    install (see services.pypi), so "requests" or "requests>=2" is checked at
+    the newest (matching) release rather than skipped.
+    """
     with parse_400("file"):
         parsed = parse_manifest(body.filename, body.content)
     try:
+        parsed, unresolved = pypi.resolve_specs(parsed)
         results = osv_scan.scan(parsed)
     except httpx.HTTPError as exc:
-        raise HTTPException(502, f"OSV lookup failed: {exc}")
+        raise HTTPException(502, f"dependency lookup failed: {exc}")
     # Persist what was searched. A history-write failure must not deny the dev
     # their results, so log and carry on rather than 500-ing the scan.
     try:
@@ -54,6 +60,7 @@ def scan_packages(body: PackageScanIn, user: User = Depends(require_user)):
         total_vulns=sum(len(r["vulns"]) for r in results),
         ecosystems=sorted({p.ecosystem for p in parsed}),
         results=results,
+        unresolved=unresolved,
     )
 
 
@@ -70,7 +77,10 @@ def import_packages(body: PackageImportIn, request: Request,
                     actor: User = Depends(require_security)):
     """Parse a manifest/lockfile and add its packages to the watchlist."""
     with parse_400("manifest"):
-        result = packages.import_manifest(body.filename, body.content, body.source)
+        try:
+            result = packages.import_manifest(body.filename, body.content, body.source)
+        except httpx.HTTPError as exc:  # unpinned requirements resolve via PyPI
+            raise HTTPException(502, f"dependency lookup failed: {exc}")
     audit.record(None, "package.import", f"imported watchlist manifest {body.filename}",
                  actor=actor, request=request, details={"filename": body.filename})
     return result

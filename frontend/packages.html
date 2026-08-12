@@ -16,9 +16,11 @@
     <section>
       <h2>Check a file for known vulnerabilities</h2>
       <p class="muted">Upload a <code>package.json</code>, lockfile, or SBOM and we'll check each
-        pinned dependency against the <a class="link" href="https://osv.dev" target="_blank" rel="noopener">OSV</a>
-        database. This doesn't change the watchlist, but a record of what you searched is
-        kept for the security team.
+        dependency against the <a class="link" href="https://osv.dev" target="_blank" rel="noopener">OSV</a>
+        database. Unpinned requirements (no version) are checked at the latest release; ranges
+        (e.g. <code>&gt;=2,&lt;3</code>) at the newest matching release — what <code>pip
+        install</code> would pick on a current Python. This doesn't change the watchlist, but a
+        record of what you searched is kept for the security team.
         Supported: <code>package.json</code>, <code>package-lock.json</code>,
         <code>requirements.txt</code>, <code>go.sum</code>, CycloneDX &amp; SPDX (JSON).</p>
       <div class="filters">
@@ -77,22 +79,26 @@
       const vword = j.total_vulns === 1 ? "vulnerability" : "vulnerabilities";
       status.textContent = `Checked ${j.checked} package(s) · ${j.vulnerable} vulnerable · ${j.total_vulns} ${vword}`
         + (j.ecosystems.length ? ` · ${j.ecosystems.join(", ")}` : "");
+      const unresolvedNote = (j.unresolved || []).length
+        ? `<p class="muted">⚠️ Couldn't resolve to a checkable version, skipped: ${esc(j.unresolved.join(", "))}</p>`
+        : "";
       if (!j.results.length) {
-        out.innerHTML = j.checked
+        out.innerHTML = (j.checked
           ? `<p class="ok-note">✅ No known vulnerabilities in the ${j.checked} checked package(s).</p>`
-          : `<p class="muted">No packages with an exact version were found in that file.</p>`;
+          : `<p class="muted">No checkable packages were found in that file.</p>`) + unresolvedNote;
         return;
       }
       const rows = j.results.flatMap(p => p.vulns.map((v, i) => `<tr>
         <td>${i === 0
-          ? `<strong>${esc(p.name)}</strong> <span class="muted">${esc(p.version)} · ${esc(p.ecosystem)}</span>`
+          ? `<strong>${esc(p.name)}</strong> <span class="muted">${esc(p.version)}${
+              p.requested ? ` (${esc(p.requested)})` : ""} · ${esc(p.ecosystem)}</span>`
           : ""}</td>
         <td><span class="pill sev-${esc(v.severity)}">${esc(v.severity)}</span>${
           v.malicious ? ' <span class="pill sla">malicious</span>' : ""}</td>
         <td>${vulnLink(v)}<div class="muted">${esc(v.summary)}</div></td>
         <td class="muted">${esc((v.cves || []).join(", "))}</td></tr>`)).join("");
       out.innerHTML = `<table><thead><tr><th>Package</th><th>Severity</th>
-        <th>Vulnerability</th><th>CVEs</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <th>Vulnerability</th><th>CVEs</th></tr></thead><tbody>${rows}</tbody></table>` + unresolvedNote;
       if (canSeeScans) loadScans();   // the search we just ran is now in the history
     }
     function vulnLink(v) {
@@ -120,7 +126,8 @@
                      source: document.getElementById("src").value.trim() || f.name };
       const r = await apiTry("/api/packages/import", { method: "POST", json: body });
       if (r.ok) {
-        msg.textContent = `Added ${r.body.added} of ${r.body.parsed} (${(r.body.ecosystems || []).join(", ")})`;
+        msg.textContent = `Added ${r.body.added} of ${r.body.parsed} (${(r.body.ecosystems || []).join(", ")})`
+          + ((r.body.unresolved || []).length ? ` · couldn't resolve: ${r.body.unresolved.join(", ")}` : "");
         load();
       } else { msg.textContent = detailOf(r.body, "import failed"); }
     }

@@ -44,22 +44,25 @@ class ScanVulnOut(BaseModel):
 class ScanPackageOut(BaseModel):
     ecosystem: str
     name: str
-    version: str
+    version: str                    # the exact version that was checked
+    requested: str | None = None    # original spec if resolved (e.g. ">=2", "latest")
     vulns: list[ScanVulnOut]
 
 
 class PackageScanOut(BaseModel):
-    checked: int            # packages with a resolvable exact version
+    checked: int            # packages checked (pinned, or resolved to a version)
     vulnerable: int         # of those, how many have >=1 known vuln
     total_vulns: int
     ecosystems: list[str]
     results: list[ScanPackageOut]
+    unresolved: list[str] = []   # e.g. ["nosuchpkg (latest)"] — named but not checkable
 
 
 class ScannedPackageOut(BaseModel):
     ecosystem: str
     name: str
     version: str
+    requested: str | None = None
     vuln_count: int
 
 

@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.2",
     "email-validator>=2.1",   # pydantic EmailStr validation
     "httpx>=0.27",
+    "packaging>=24.0",      # PEP 440 version/range resolution for requirements.txt scans
     "structlog>=24.1",
     "python-dateutil>=2.9",
     "apscheduler>=3.10,<4",
